@@ -45,6 +45,7 @@ def model(beta_0, theta_0, beta, theta, x, z):
 
 def partial_model(beta, theta, x, z, partial_index):
     n, p = x.shape
+    k = z.shape[1]
 
     beta = beta.copy()
     beta[partial_index] = 0
@@ -71,3 +72,11 @@ def j(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     penalty_3 = la.norm(theta, 2, axis=1).sum()
 
     return mse + (1 - alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
+
+
+def derivative_with_respect_to_beta_j(x_j, r, alpha, lam, u):
+    return (-1/len(r)) * x_j.T @ r + (1 - alpha) * lam * u
+
+
+def derivative_with_respect_to_theta_j(w_j, r, alpha, lam, u2, u3, v):
+    return (-1/len(r)) * w_j.T @ r + (1 - alpha) * lam * (u2 + u3) + alpha * lam * v
