@@ -22,9 +22,6 @@ class PliableLasso(BaseEstimator, RegressorMixin):
         self.beta = None
         self.theta = None
 
-    def _gradient_descent(self):
-        raise NotImplementedError
-
     def fit(self, X, Z, y):
         # NOTE: wtf this is an O(nk)
         alpha, lam = self.alpha, self.lam  # So I don't have to keep writing self

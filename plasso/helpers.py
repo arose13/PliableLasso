@@ -11,6 +11,13 @@ def soft_thres(x, thres):
     return np.sign(x) * np.clip(abs(x) - thres, a_min=0, a_max=None)
 
 
+def quad_solution(u, v, w):
+    temp = np.sqrt((v**2) - (4*u*w))
+    root1 = (-v + temp) / (2*u)
+    root2 = (-v - temp) / (2*u)
+    return root1, root2
+
+
 def compute_w_j(x, z, j: int):
     # TODO 12/23/2018 add caching decorating for when the function inputs are the same
     k = z.shape[1]
