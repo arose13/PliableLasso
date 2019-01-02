@@ -18,6 +18,55 @@ def quad_solution(u, v, w):
     return root1, root2
 
 
+def solve_abg(b, grad_beta, grad_theta, alpha, lam, tt=0.1):
+    """
+    Solve the system of equations for update in the pliable lasso.
+    This is step 4b
+
+    :param b: Single beta with length of modifying vars k (from theta) TODO is this a correct interpretation?
+    :param grad_beta: Real(1) -> gradient beta = -sum(xk*r)/n  where xk is X.
+            where xk is X column of in current coord descent step, r=current residual
+    :param grad_theta: Real(k) -> gradient theta = -t(X_k Z) * r/n
+    :param alpha: Real(1) [0, 1] mixing parameter
+    :param lam: Real(1)+ -> regularisation strength
+    :param tt: Real(1) -> backtracking parameter
+    :return:
+    """
+    big, eps = 1e10, 1e-3
+    k = len(grad_theta)
+
+    g1 = -tt * grad_beta
+
+    scratch = np.zeros(k)
+    for i in range(k):  # TODO (1/2/2019) vectorize?
+        scratch[i] = b[i] - tt * grad_theta[i]
+
+    tt2 = tt * alpha * lam
+    scratch = soft_thres(scratch, tt2)
+
+    ng1 = np.abs(g1)
+    ng2 = np.sqrt(scratch @ scratch)
+
+    cc = tt * (1-alpha) * lam
+
+    root1, root2 = quad_solution(u=1.0, v=2 * cc, w=2 * cc * ng2 - ng1**2 - ng2**2)
+
+    a = np.array([
+        ng1 * root1 / (cc + root1),
+        ng1 * root2 / (cc + root2),
+        ng1 * root1 / (cc + root2),
+        ng1 * root2 / (cc + root1)
+    ])
+    b = np.array([
+        root1 * (cc - ng2) / (cc + root1),
+        root2 * (cc - ng2) / (cc + root2),
+        root1 * (cc - ng2) / (cc + root2),
+        root2 * (cc - ng2) / (cc + root1)
+    ])
+
+
+
+
 def compute_w_j(x, z, j: int):
     # TODO 12/23/2018 add caching decorating for when the function inputs are the same
     k = z.shape[1]
