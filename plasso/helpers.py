@@ -35,48 +35,46 @@ def estimate_intercepts(z, y):
     return beta_0, theta_0, y
 
 
-def model(beta_0, theta_0, beta, theta, x, z, ignore_j=None):
+def model(beta_0, theta_0, beta, theta, x, z):
     n, p, k = x.shape[0], x.shape[1], z.shape[1]
-    ignore_intercepts = beta_0 is np.nan or theta_0 is np.nan
 
-    intercepts = 0 if ignore_intercepts else beta_0 + (z @ theta_0)
+    intercepts = beta_0 + (z @ theta_0)
 
-    if ignore_j is not None:
-        beta[ignore_j] = 0
     shared_model = x @ beta
 
     pliable = np.zeros(n)
-    for j_i in range(p):  # TODO 12/23/2018 this for loops does not need to be here if you dot everything
-        if j_i == ignore_j:
-            continue
+    for j_i in range(p):
         w_j = compute_w_j(x, z, j_i)
         pliable = pliable + (w_j @ theta[j_i, :])
 
     return intercepts + shared_model + pliable
 
 
-def partial_model(beta, theta, x, z, ignore_j):
-    return model(np.nan, np.nan, beta, theta, x, z, ignore_j)
+def partial_model(beta_0, theta_0, beta, theta, x, z, ignore_j):
+    beta[ignore_j] = 0.0
+    theta[ignore_j, :] = 0.0
+    return model(beta_0, theta_0, beta, theta, x, z)
 
 
 def j(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     n = len(y)
 
-    mse = (0.5 * n) * (y - model(beta_0, theta_0, beta, theta, x, z)).sum()
+    mse = (1/(2*n)) * ((y - model(beta_0, theta_0, beta, theta, x, z))**2).sum()
     beta_matrix = v2a(beta)
 
     penalty_1 = la.norm(theta, 1).sum()
     penalty_2 = la.norm(np.hstack([beta_matrix, theta]), 2, axis=1).sum()
     penalty_3 = la.norm(theta, 2, axis=1).sum()
 
-    return mse + (1 - alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
+    cost = mse + (1 - alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
+    return cost
 
 
-def j_partial(params_j, j_i, beta, theta, x, z, y, alpha, lam):
+def j_partial(params_j, j_i, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     beta_j, theta_j = params_j[0], params_j[1:]
     beta[j_i] = beta_j
     theta[j_i, :] = theta_j
-    return j(np.nan, np.nan, beta, theta, x, z, y, alpha, lam)
+    return j(beta_0, theta_0, beta, theta, x, z, y, alpha, lam)
 
 
 def derivative_with_respect_to_beta_j(x_j, r, alpha, lam, u):
