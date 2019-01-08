@@ -36,12 +36,16 @@ class PliableLasso(BaseEstimator, RegressorMixin):
         k = Z.shape[1]
 
         self.beta_0, self.theta_0, self.beta, self.theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
+        self.beta_0 += eps
+        self.theta_0 += eps
+        self.beta += eps
+        self.theta += eps
         self.history.append(j(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, alpha, lam))
         print(f'Initial Objective J = {self.history[-1]:0.5f}')
 
         # Step 1: Compute beta_0 and theta_0
         if self.fit_intercepts:
-            self.beta_0, self.theta_0, y = estimate_intercepts(Z, y)
+            self.beta_0, self.theta_0, _ = estimate_intercepts(Z, y)
 
         self.history.append(j(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, alpha, lam))
         print(f'Post Intercepts Objective J = {self.history[-1]:0.5f}')
@@ -72,6 +76,7 @@ class PliableLasso(BaseEstimator, RegressorMixin):
                     if cond_19 <= (1 - alpha) * lam:
                         # Step 2.b: beta_j_hat != 0, theta_j_hat == 0
                         self.beta[pi] = beta_j_hat
+                        print(f'beta_{pi} == {beta_j_hat} theta_{pi} == {0}')
                         continue
                     else:
                         # beta_j_hat != 0 and theta_j_hat != 0
@@ -94,7 +99,10 @@ class PliableLasso(BaseEstimator, RegressorMixin):
                             print(f'Convergence Warning on j {pi} Flag #{warn_flag}')
 
             self.history.append(j(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, alpha, lam))
-            print(f'-> J_i = {self.history[-1]}\n')
+
+            from sklearn.metrics import r2_score
+            y_hat = model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z)
+            print(f'-> J_i = {self.history[-1]} | R2 = {r2_score(y, y_hat)}\n')
 
     def predict(self, X, Z):
         if self.beta is None:

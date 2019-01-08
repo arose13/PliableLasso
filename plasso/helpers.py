@@ -3,6 +3,9 @@ import numpy.linalg as la
 from sklearn.linear_model import LinearRegression
 
 
+eps = 1e-4
+
+
 def v2a(a):
     return a.reshape((len(a), 1))
 
@@ -77,9 +80,14 @@ def j_partial(params_j, j_i, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     return j(beta_0, theta_0, beta, theta, x, z, y, alpha, lam)
 
 
-def derivative_with_respect_to_beta_j(x_j, r, alpha, lam, u):
-    return (-1/len(r)) * x_j.T @ r + (1 - alpha) * lam * u
+def derivative_wrt_beta_j(beta_0, theta_0, beta, theta, x, z, y, j, alpha, lam):
+    y_hat = model(beta_0, theta_0, beta, theta, x, z)
+    r = y - y_hat
+    vec = np.hstack((beta[j], theta[j, :])) + eps
+    u = beta[j] / la.norm(vec, 2)
+    return (-1/len(r)) * x[:, j].T @ r + (1 - alpha) * lam * u
 
 
-def derivative_with_respect_to_theta_j(w_j, r, alpha, lam, u2, u3, v):
+def derivative_wrt_theta_j(w_j, r, alpha, lam, u2, u3, v):
+    # TODO (1/8/2019) compute this derivative to hopefully help optimisation
     return (-1/len(r)) * w_j.T @ r + (1 - alpha) * lam * (u2 + u3) + alpha * lam * v
