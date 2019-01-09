@@ -80,14 +80,26 @@ def j_partial(params_j, j_i, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     return j(beta_0, theta_0, beta, theta, x, z, y, alpha, lam)
 
 
-def derivative_wrt_beta_j(beta_0, theta_0, beta, theta, x, z, y, j, alpha, lam):
-    y_hat = model(beta_0, theta_0, beta, theta, x, z)
-    r = y - y_hat
-    vec = np.hstack((beta[j], theta[j, :])) + eps
-    u = beta[j] / la.norm(vec, 2)
-    return (-1/len(r)) * x[:, j].T @ r + (1 - alpha) * lam * u
+def compute_r(beta_0, theta_0, beta, theta, x, z, y):
+    return y - model(beta_0, theta_0, beta, theta, x, z)
 
 
-def derivative_wrt_theta_j(w_j, r, alpha, lam, u2, u3, v):
-    # TODO (1/8/2019) compute this derivative to hopefully help optimisation
+def derivative_wrt_beta_i(beta_0, theta_0, beta, theta, x, z, y, i, alpha, lam):
+    r = compute_r(beta_0, theta_0, beta, theta, x, z, y)
+    vec = np.hstack((beta[i], theta[i, :])) + eps
+    u = beta[i] / la.norm(vec, 2)
+    return (-1/len(r)) * x[:, i].T @ r + (1 - alpha) * lam * u
+
+
+def derivative_wrt_theta_i(beta_0, theta_0, beta, theta, x, z, y, i, alpha, lam):
+    beta_0 += eps
+    theta_0 += eps
+    beta_j = beta[i] + eps
+    theta_j = theta[i, :] + eps
+
+    r = compute_r(beta_0, theta_0, beta, theta, x, z, y)
+    w_j = compute_w_j(x, z, i)
+    u2 = theta_j / la.norm(np.hstack((beta_j, theta_j)), 2)
+    u3 = theta_j / la.norm(theta_j, 2)
+    v = np.sign(theta[i, :])
     return (-1/len(r)) * w_j.T @ r + (1 - alpha) * lam * (u2 + u3) + alpha * lam * v

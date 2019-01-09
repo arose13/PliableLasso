@@ -2,7 +2,7 @@ import numpy as np
 from numpy.testing import assert_almost_equal
 from scipy import stats
 from plasso import PliableLasso
-from plasso.helpers import model, j, derivative_wrt_beta_j, derivative_wrt_theta_j
+from plasso.helpers import model, j, derivative_wrt_beta_i, derivative_wrt_theta_i
 from sklearn.metrics import r2_score, mean_squared_error
 
 
@@ -53,35 +53,41 @@ if __name__ == '__main__':
     print()
 
     # Derivative Test
-    d_wrt_bj = derivative_wrt_beta_j(0, np.zeros(k), np.zeros(p), np.zeros((p, k)), x, z, y, 0, 0.5, 2)
-    print(f'dJ/dB_j = {d_wrt_bj}')
+    print('=== Analytical Derivative ===')
+    for j in range(p):
+        d_wrt_bj = derivative_wrt_beta_i(0, np.zeros(k), np.zeros(p), np.zeros((p, k)), x, z, y, j, 0.5, 2)
+        print(f'dJ/dB_{j} = {d_wrt_bj}')
+
+        d_wrt_tj = derivative_wrt_theta_i(0, np.zeros(k), np.zeros(p), np.zeros((p, k)), x, z, y, j, 0.5, 2)
+        print(f'dJ/dT_{j} = {d_wrt_tj}')
+        print()
 
     # Optimisation Test
-    # y_gt = y.copy()
-    # y += 0.5 * stats.norm().rvs(n)  # Add noise from paper
-    #
-    # plasso = PliableLasso(lam=2, fit_intercepts=False, max_iter=10)
-    # plasso.fit(x, z, y)
-    # y_hat = plasso.predict(x, z)
-    #
-    # print('\n=== Outputs ===')
-    #
-    # print('\nbeta_0')
-    # print(plasso.beta_0)
-    #
-    # print('\ntheta_0')
-    # print(plasso.theta_0)
-    #
-    # print('\nbeta')
-    # print(np.round(plasso.beta, 2))
-    #
-    # print('\ntheta')
-    # print(np.round(plasso.theta, 2))
-    #
-    # print('--- Best Possible ---')
-    # print(f'R2 = {r2_score(y, y_gt):0.2%}, MSE = {mean_squared_error(y, y_gt):0.5f}')
-    # print(f'J = {j(beta_0, theta_0, beta, theta, x, z, y, alpha=plasso.alpha, lam=plasso.lam):0.5f}')
-    #
-    # print('--- Obtained ---')
-    # print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
-    # print(f'J = {plasso.history[-1]:0.5f}')
+    y_gt = y.copy()
+    y += 0.5 * stats.norm().rvs(n)  # Add noise from paper
+
+    plasso = PliableLasso(lam=2, fit_intercepts=False, max_iter=10)
+    plasso.fit(x, z, y)
+    y_hat = plasso.predict(x, z)
+
+    print('\n=== Outputs ===')
+
+    print('\nbeta_0')
+    print(plasso.beta_0)
+
+    print('\ntheta_0')
+    print(plasso.theta_0)
+
+    print('\nbeta')
+    print(np.round(plasso.beta, 2))
+
+    print('\ntheta')
+    print(np.round(plasso.theta, 2))
+
+    print('--- Best Possible ---')
+    print(f'R2 = {r2_score(y, y_gt):0.2%}, MSE = {mean_squared_error(y, y_gt):0.5f}')
+    print(f'J = {j(beta_0, theta_0, beta, theta, x, z, y, alpha=plasso.alpha, lam=plasso.lam):0.5f}')
+
+    print('--- Obtained ---')
+    print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
+    print(f'J = {plasso.history[-1]:0.5f}')
