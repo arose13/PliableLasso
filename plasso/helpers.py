@@ -70,8 +70,7 @@ def j(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     penalty_2 = la.norm(theta, 2, axis=1).sum()
     penalty_3 = la.norm(theta, 1).sum()
 
-    # cost = mse + (1 - alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
-    cost = mse * lam * (penalty_1 + penalty_2) * lam * penalty_3
+    cost = mse + (1 - alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
     return cost
 
 
