@@ -54,12 +54,12 @@ if __name__ == '__main__':
 
     # Derivative Test
     print('=== Analytical Derivative ===')
-    for j in range(p):
-        d_wrt_bj = derivative_wrt_beta_i(0, np.zeros(k), np.zeros(p), np.zeros((p, k)), x, z, y, j, 0.5, 2)
-        print(f'dJ/dB_{j} = {d_wrt_bj}')
+    for pi in range(p):
+        d_wrt_bj = derivative_wrt_beta_i(0, np.zeros(k), np.zeros(p), np.zeros((p, k)), x, z, y, pi, 0.5, 2)
+        print(f'dJ/dB_{pi} = {d_wrt_bj}')
 
-        d_wrt_tj = derivative_wrt_theta_i(0, np.zeros(k), np.zeros(p), np.zeros((p, k)), x, z, y, j, 0.5, 2)
-        print(f'dJ/dT_{j} = {d_wrt_tj}')
+        d_wrt_tj = derivative_wrt_theta_i(0, np.zeros(k), np.zeros(p), np.zeros((p, k)), x, z, y, pi, 0.5, 2)
+        print(f'dJ/dT_{pi} = {d_wrt_tj}')
         print()
 
     # Optimisation Test

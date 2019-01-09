@@ -36,10 +36,6 @@ class PliableLasso(BaseEstimator, RegressorMixin):
         k = Z.shape[1]
 
         self.beta_0, self.theta_0, self.beta, self.theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
-        self.beta_0 += eps
-        self.theta_0 += eps
-        self.beta += eps
-        self.theta += eps
         self.history.append(j(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, alpha, lam))
         print(f'Initial Objective J = {self.history[-1]:0.5f}')
 
@@ -102,7 +98,7 @@ class PliableLasso(BaseEstimator, RegressorMixin):
 
             from sklearn.metrics import r2_score
             y_hat = model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z)
-            print(f'-> J_i = {self.history[-1]} | R2 = {r2_score(y, y_hat)}\n')
+            print(f'-> J_{i} = {self.history[-1]} | R2 = {r2_score(y, y_hat)}\n')
 
     def predict(self, X, Z):
         if self.beta is None:
