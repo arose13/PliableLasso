@@ -1,15 +1,14 @@
-import numpy as np
 import pandas as pd
-import numpy.linalg as la
+import pandas as pd
 import scipy.optimize as opt
-from tqdm import trange
+from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
-from sklearn.base import RegressorMixin, BaseEstimator
+
 from .helpers import *
 
 
 # noinspection PyPep8Naming
-class PliableLasso(BaseEstimator, RegressorMixin):
+class PliableLasso(BaseEstimator):
     """
     Pliable Lasso https://arxiv.org/pdf/1712.00484.pdf
     """
@@ -28,6 +27,16 @@ class PliableLasso(BaseEstimator, RegressorMixin):
         self.history = []
 
     def fit(self, X, Z, y):
+        self.history = []
+
+        alpha, lam = self.alpha, self.lam  # So I don't have to keep writing `self`
+        n, p = X.shape
+        k = Z.shape[1]
+
+        # Fit with Convex Optimisation
+        # TODO (1/9/2019) For windows install https://visualstudio.microsoft.com/visual-cpp-build-tools/ for cvxpy
+
+    def _fit(self, X, Z, y):
         self.history = []
 
         # NOTE: wtf this is an O(nk)
@@ -111,3 +120,7 @@ class PliableLasso(BaseEstimator, RegressorMixin):
             Z = Z.values
 
         return model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z)
+
+    def score(self, X, Z, y):
+        from sklearn.metrics import r2_score
+        return r2_score(y, model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z))
