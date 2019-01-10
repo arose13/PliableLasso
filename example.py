@@ -61,6 +61,7 @@ if __name__ == '__main__':
         d_wrt_tj = derivative_wrt_theta_i(0, np.zeros(k), np.zeros(p), np.zeros((p, k)), x, z, y, pi, 0.5, 2)
         print(f'dJ/dT_{pi} = {d_wrt_tj}')
         print()
+        break
 
     # Optimisation Test
     y_gt = y.copy()
