@@ -1,5 +1,4 @@
 import pandas as pd
-import pandas as pd
 import scipy.optimize as opt
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
@@ -27,14 +26,28 @@ class PliableLasso(BaseEstimator):
         self.history = []
 
     def fit(self, X, Z, y):
+        import cvxpy as cvx
+        from .cvxHelpers import j_cvx
         self.history = []
 
-        alpha, lam = self.alpha, self.lam  # So I don't have to keep writing `self`
+        # Hyperparameters
+        alpha = self.alpha
+        lam = cvx.Parameter(nonneg=True)
+        lam.value = self.lam  # So I don't have to keep writing `self`
+
+        # Parameters
         n, p = X.shape
         k = Z.shape[1]
+        beta_0 = cvx.Variable(1)
+        theta_0 = cvx.Variable(k)
+        beta = cvx.Variable(p)
+        theta = cvx.Variable((p, k))
 
         # Fit with Convex Optimisation
-        # TODO (1/9/2019) For windows install https://visualstudio.microsoft.com/visual-cpp-build-tools/ for cvxpy
+        problem = cvx.Problem(
+            cvx.Minimize(j_cvx(beta_0, theta_0, beta, theta, X, y, Z, alpha, lam))
+        )
+        # TODO 1/10/2019 solve on a decreasing lambda path
 
     def _fit(self, X, Z, y):
         self.history = []
