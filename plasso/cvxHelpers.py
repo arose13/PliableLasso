@@ -29,7 +29,8 @@ def y_hat(beta_0, theta_0, beta, theta, x, z):
 def j_cvx(beta_0, theta_0, beta, theta, x, y, z, alpha, lam):
     n, p = x.shape
 
-    mse = (0.5 * n) * cvx.sum((y - y_hat(beta_0, theta_0, beta, theta, x, z)) ** 2)
+    # mse = (1/(2*n)) * cvx.sum((y - y_hat(beta_0, theta_0, beta, theta, x, z)) ** 2)
+    mse = cvx.norm((y - y_hat(beta_0, theta_0, beta, theta, x, z)), p=2)**2
 
     beta_matrix = cvx.reshape(beta, (p, 1))
 

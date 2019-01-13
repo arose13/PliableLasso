@@ -8,7 +8,7 @@ from sklearn.metrics import r2_score, mean_squared_error
 
 if __name__ == '__main__':
     # Setup
-    n = 100
+    n = 1000
     p = 50
     k = 4
 
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     y_gt = y.copy()
     y += 0.5 * stats.norm().rvs(n)  # Add noise from paper
 
-    plasso = PliableLasso(lam=2, fit_intercepts=False, max_iter=10)
+    plasso = PliableLasso(lam=1e3, fit_intercepts=False, max_iter=10)
     plasso.fit(x, z, y)
     y_hat = plasso.predict(x, z)
 

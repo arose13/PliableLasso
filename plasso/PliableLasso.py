@@ -6,12 +6,16 @@ from sklearn.exceptions import NotFittedError
 from .helpers import *
 
 
+OPTIMISE_CONVEX = 'convex'
+OPTIMISE_COORDINATE = 'coordinate'
+
+
 # noinspection PyPep8Naming
 class PliableLasso(BaseEstimator):
     """
     Pliable Lasso https://arxiv.org/pdf/1712.00484.pdf
     """
-    def __init__(self, lam=1.0, alpha=0.5, max_iter=100, fit_intercepts=False):
+    def __init__(self, lam=1.0, alpha=0.5, max_iter=500, fit_intercepts=False, verbose=False):
         self.lam, self.alpha = lam, alpha
         self.max_iter = max_iter
         self.fit_intercepts = fit_intercepts
@@ -23,27 +27,36 @@ class PliableLasso(BaseEstimator):
         self.theta = None
 
         # Metrics
+        self.verbose = verbose
         self.history = []
         self.paths = {}
 
-    def fit(self, X, Z, y):
+    def fit(self, X, Z, y, optimizer=OPTIMISE_CONVEX):
+        if optimizer == OPTIMISE_CONVEX:
+            return self._fit_convex_optimization(X, Z, y)
+        else:
+            return self._fit_coordinate_descent(X, Z, y)
+
+    def _fit_convex_optimization(self, X, Z, y):
         import cvxpy as cvx
         from .cvxHelpers import j_cvx
 
         self.history = []
-        self.paths = {}
-        for param_name in ['beta_0', 'theta_0', 'beta', 'theta']:
-            self.paths[param_name] = []
 
         # Hyperparameters
         alpha = self.alpha
         lam = cvx.Parameter(nonneg=True)
+        lam.value = self.lam
 
         # Parameters
         n, p = X.shape
         k = Z.shape[1]
-        beta_0 = cvx.Variable(1)
-        theta_0 = cvx.Variable(k)
+        if self.fit_intercepts:
+            beta_0 = cvx.Variable(1)
+            theta_0 = cvx.Variable(k)
+        else:
+            beta_0 = 0.0
+            theta_0 = np.zeros(k)
         beta = cvx.Variable(p)
         theta = cvx.Variable((p, k))
 
@@ -52,24 +65,16 @@ class PliableLasso(BaseEstimator):
             cvx.Minimize(j_cvx(beta_0, theta_0, beta, theta, X, y, Z, alpha, lam))
         )
         # Solve on a decreasing lambda path
-        for lam_i in np.logspace(5, np.log10(self.lam), 30):
-            lam.value = lam_i
-            problem.solve()
+        problem.solve(verbose=self.verbose, solver=cvx.CVXOPT, max_iter=self.max_iter)
 
-            # Save parameter path
-            self.paths['beta_0'].append(beta_0.value)
-            self.paths['theta_0'].append(theta_0.value)
-            self.paths['beta'].append(beta.value)
-            self.paths['theta'].append(theta.value)
-
-        self.beta_0 = beta_0.value
-        self.theta_0 = theta_0.value
+        self.beta_0 = beta_0 if self.fit_intercepts else beta_0.value
+        self.theta_0 = theta_0 if self.fit_intercepts else theta_0.value
         self.beta = beta.value
         self.theta = theta.value
 
         return self
 
-    def _fit(self, X, Z, y):
+    def _fit_coordinate_descent(self, X, Z, y):
         self.history = []
 
         # NOTE: wtf this is an O(nk)
