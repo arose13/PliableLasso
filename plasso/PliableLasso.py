@@ -24,16 +24,20 @@ class PliableLasso(BaseEstimator):
 
         # Metrics
         self.history = []
+        self.paths = {}
 
     def fit(self, X, Z, y):
         import cvxpy as cvx
         from .cvxHelpers import j_cvx
+
         self.history = []
+        self.paths = {}
+        for param_name in ['beta_0', 'theta_0', 'beta', 'theta']:
+            self.paths[param_name] = []
 
         # Hyperparameters
         alpha = self.alpha
         lam = cvx.Parameter(nonneg=True)
-        lam.value = self.lam  # So I don't have to keep writing `self`
 
         # Parameters
         n, p = X.shape
@@ -47,7 +51,23 @@ class PliableLasso(BaseEstimator):
         problem = cvx.Problem(
             cvx.Minimize(j_cvx(beta_0, theta_0, beta, theta, X, y, Z, alpha, lam))
         )
-        # TODO 1/10/2019 solve on a decreasing lambda path
+        # Solve on a decreasing lambda path
+        for lam_i in np.logspace(5, np.log10(self.lam), 30):
+            lam.value = lam_i
+            problem.solve()
+
+            # Save parameter path
+            self.paths['beta_0'].append(beta_0.value)
+            self.paths['theta_0'].append(theta_0.value)
+            self.paths['beta'].append(beta.value)
+            self.paths['theta'].append(theta.value)
+
+        self.beta_0 = beta_0.value
+        self.theta_0 = theta_0.value
+        self.beta = beta.value
+        self.theta = theta.value
+
+        return self
 
     def _fit(self, X, Z, y):
         self.history = []
