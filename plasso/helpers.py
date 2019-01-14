@@ -12,7 +12,7 @@ def v2a(a):
 
 
 def soft_thres(x, thres):
-    return np.sign(x) * np.clip(abs(x) - thres, a_min=0, a_max=None)
+    return np.sign(x) * np.maximum(abs(x) - thres, 0)
 
 
 def quad_solution(u, v, w):
@@ -63,7 +63,7 @@ def partial_model(beta_0, theta_0, beta, theta, x, z, ignore_j):
 def j(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     n = len(y)
 
-    mse = (1/(2*n)) * ((y - model(beta_0, theta_0, beta, theta, x, z))**2).sum()
+    mse = (1/(2*n)) * la.norm(y - model(beta_0, theta_0, beta, theta, x, z), 2)**2
     beta_matrix = v2a(beta)
 
     penalty_1 = la.norm(np.hstack([beta_matrix, theta]), 2, axis=1).sum()
