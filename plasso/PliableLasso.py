@@ -31,11 +31,13 @@ class PliableLasso(BaseEstimator):
         self.history = []
         self.paths = {}
 
-    def fit(self, X, Z, y, optimizer=OPTIMISE_CONVEX):
+    def fit(self, X, Z, y, optimizer=OPTIMISE_COORDINATE):
         if optimizer == OPTIMISE_CONVEX:
             return self._fit_convex_optimization(X, Z, y)
-        else:
+        elif optimizer == OPTIMISE_COORDINATE:
             return self._fit_coordinate_descent(X, Z, y)
+        else:
+            raise ValueError(f'Only allowed optimizers are {OPTIMISE_COORDINATE} or {OPTIMISE_CONVEX}')
 
     def _fallback_to_coordinate_descent(self, X, Z, y):
         warnings.warn('cvxpy is required for convex optimisation. Falling back to coordinate descent')
