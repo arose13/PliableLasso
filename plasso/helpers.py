@@ -11,8 +11,16 @@ def v2a(a):
     return a.reshape((len(a), 1))
 
 
+def lam_max(x, y, alpha):
+    n = len(y)
+    dots = np.zeros(x.shape[1])
+    for j in range(len(dots)):
+        dots[j] = x[:, j].T @ y
+    return np.abs(dots).max() / (n*alpha)
+
+
 def soft_thres(x, thres):
-    return np.sign(x) * np.maximum(abs(x) - thres, 0)
+    return np.sign(x) * np.maximum(np.abs(x) - thres, 0)
 
 
 def quad_solution(u, v, w):
@@ -20,6 +28,72 @@ def quad_solution(u, v, w):
     root1 = (-v + temp) / (2*u)
     root2 = (-v - temp) / (2*u)
     return root1, root2
+
+
+def solveabg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, tt):
+    big, eps = 10e9, 1e-3
+
+    g1 = beta_j - tt * grad_beta
+
+    scrat = theta_j - tt * grad_theta
+
+    tt2 = tt * alpha * lam
+
+    scrat2 = soft_thres(scrat, tt2)
+
+    ng1 = np.abs(g1)
+    ng2 = np.sqrt(scrat2 @ scrat2)
+
+    cc = tt * (1-alpha) * lam
+
+    root1, root2 = quad_solution(1, 2*cc, 2*cc*ng2-ng1**2-ng2**2)
+
+    a = np.array([
+        ng1 * root1 / (cc + root1),
+        ng1 * root2 / (cc + root2),
+        ng1 * root1 / (cc + root2),
+        ng1 * root2 / (cc + root1)
+    ])
+    b = np.array([
+        root1 * (cc - ng2) / (cc + root1),
+        root2 * (cc - ng2) / (cc + root2),
+        root1 * (cc - ng2) / (cc + root2),
+        root2 * (cc - ng2) / (cc + root1)
+    ])
+
+    xmin = big
+    jhat, khat = 0, 0
+    val1 = np.zeros((4, 4))
+    val2 = val1.copy()
+    for j in range(4):
+        for k in range(4):
+            val1[j, k] = big
+            val2[j, k] = big
+
+            den = np.sqrt(a[j]**2 + b[k]**2)
+            if den > 0:
+                val1[j, k] = (1+(cc/den)) * a[j] - ng1
+                val2[j, k] = (1+cc*(1/b[k] + 1/den)) * b[k] - ng2
+                temp = np.abs(val1[j, k]) + np.abs(val2[j, k])
+                if temp < xmin:
+                    jhat, khat = j, k
+                    xmin = temp
+
+    if np.abs(xmin) > eps:
+        print('Failed to Solve ABG')
+
+    if a[jhat] < 0 or b[khat] < 0:
+        print('Failed: One of the norms are negative')
+
+    xnorm = np.sqrt(a[jhat]**2 + b[khat]**2)
+
+    beta_j_hat = (beta_j - tt * grad_beta) / (1 + cc/xnorm)
+
+    scrat2 = theta_j - tt * grad_theta
+    theta_j_hat = soft_thres(scrat2, tt2)
+    theta_j_hat = theta_j_hat / (1 + cc * (1/xnorm + 1/b[khat]))
+
+    return beta_j_hat, theta_j_hat
 
 
 def compute_w_j(x, z, j: int):
@@ -68,7 +142,7 @@ def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
 
     penalty_1 = la.norm(np.hstack([beta_matrix, theta]), 2, axis=1).sum()
     penalty_2 = la.norm(theta, 2, axis=1).sum()
-    penalty_3 = la.norm(theta, 1).sum()
+    penalty_3 = np.abs(theta).sum()  # sum(theta_jk)
 
     cost = mse + (1 - alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
     return cost

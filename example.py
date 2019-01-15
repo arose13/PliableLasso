@@ -2,9 +2,10 @@ import numpy as np
 from numpy.testing import assert_almost_equal
 from scipy import stats
 from plasso import PliableLasso
-from plasso.helpers import model, objective, derivative_wrt_beta_j, derivative_wrt_theta_j
+from plasso.helpers import model, objective, derivative_wrt_beta_j, derivative_wrt_theta_j, lam_max
 from plasso.PliableLasso import OPTIMISE_COORDINATE, OPTIMISE_CONVEX
 from sklearn.metrics import r2_score, mean_squared_error
+import matplotlib.pyplot as graph
 
 
 if __name__ == '__main__':
@@ -18,10 +19,12 @@ if __name__ == '__main__':
 
     beta = np.zeros(p)
     beta[:4] = [2, -2, 2, 2]
+    print(beta)
 
     theta = np.zeros((p, k))
     theta[2, 0] = 2.0
     theta[3, 1] = -2.0
+    print(theta)
 
     z = stats.bernoulli(p=0.5).rvs(size=(n, k))
     print(z.shape)
@@ -64,40 +67,47 @@ if __name__ == '__main__':
         break
 
     y_gt = y.copy()
-    y += 0.5 * stats.norm().rvs(n)  # Add noise from paper
+    # y += 0.5 * stats.norm().rvs(n)  # Add noise from paper
+
+    lambda_max = lam_max(x, y, 0.5)
+    lambda_min = 1e-3 * lambda_max
+    print(f'\nlambda range [{lambda_min}, {lambda_max}]')
 
     # Optimisation Test (Convex Optimisation)
-    print('\n=== Fitting Model via Convex Optimisation ===')
-    plasso = PliableLasso(lam=2, fit_intercepts=False, max_iter=100)
-    plasso.fit(x, z, y, optimizer=OPTIMISE_CONVEX)
-    y_hat = plasso.predict(x, z)
+    plasso = PliableLasso(lam=0.5, fit_intercepts=False, verbose=2, max_iter=100)
 
-    print('\n== Outputs ==')
-
-    print('\nbeta_0')
-    print(plasso.beta_0)
-
-    print('\ntheta_0')
-    print(plasso.theta_0)
-
-    print('\nbeta')
-    print(np.round(plasso.beta, 2))
-
-    print('\ntheta')
-    print(np.round(plasso.theta, 2))
-
-    print('--- Best Possible ---')
-    print(f'R2 = {r2_score(y, y_gt):0.2%}, MSE = {mean_squared_error(y, y_gt):0.5f}')
-    print(f'J = {objective(beta_0, theta_0, beta, theta, x, z, y, alpha=plasso.alpha, lam=plasso.lam):0.5f}')
-
-    print('--- Obtained ---')
-    print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
-    print(f'J = {plasso.cost(x, z, y):0.5f}')
+    # print('\n=== Fitting Model via Convex Optimisation ===')
+    # plasso.fit(x, z, y, optimizer=OPTIMISE_CONVEX)
+    # y_hat = plasso.predict(x, z)
+    #
+    # print('\n== Outputs ==')
+    #
+    # print('\nbeta_0')
+    # print(plasso.beta_0)
+    #
+    # print('\ntheta_0')
+    # print(plasso.theta_0)
+    #
+    # print('\nbeta')
+    # print(np.round(plasso.beta, 2))
+    #
+    # print('\ntheta')
+    # print(np.round(plasso.theta, 2))
+    #
+    # print('--- Best Possible ---')
+    # print(f'R2 = {r2_score(y, y_gt):0.2%}, MSE = {mean_squared_error(y, y_gt):0.5f}')
+    # print(f'J = {objective(beta_0, theta_0, beta, theta, x, z, y, alpha=plasso.alpha, lam=plasso.lam):0.5f}')
+    #
+    # print('--- Obtained ---')
+    # print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
+    # print(f'J = {plasso.cost(x, z, y):0.5f}')
 
     # Optimisation Test (Coordinate Descent)
     print('\n=== Fitting Model via Coordinate Descent ===')
     plasso.fit(x, z, y, optimizer=OPTIMISE_COORDINATE)
     y_hat = plasso.predict(x, z)
+
+    graph.plot()
 
     print('\n== Outputs ==')
 
