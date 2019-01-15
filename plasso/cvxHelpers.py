@@ -26,7 +26,7 @@ def y_hat(beta_0, theta_0, beta, theta, x, z):
     return output
 
 
-def j_cvx(beta_0, theta_0, beta, theta, x, y, z, alpha, lam):
+def objective_cvx(beta_0, theta_0, beta, theta, x, y, z, alpha, lam):
     n, p = x.shape
 
     # mse = (1/(2*n)) * cvx.sum((y - y_hat(beta_0, theta_0, beta, theta, x, z)) ** 2)

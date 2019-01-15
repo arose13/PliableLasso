@@ -60,7 +60,7 @@ def partial_model(beta_0, theta_0, beta, theta, x, z, ignore_j):
     return model(beta_0, theta_0, beta, theta, x, z)
 
 
-def j(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
+def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     n = len(y)
 
     mse = (1/(2*n)) * la.norm(y - model(beta_0, theta_0, beta, theta, x, z), 2)**2
@@ -74,36 +74,36 @@ def j(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     return cost
 
 
-def j_partial(params_j, j_i, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
+def partial_objective(params_j, j_i, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     beta_j, theta_j = params_j[0], params_j[1:]
     beta[j_i] = beta_j
     theta[j_i, :] = theta_j
-    return j(beta_0, theta_0, beta, theta, x, z, y, alpha, lam)
+    return objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam)
 
 
 def compute_r(beta_0, theta_0, beta, theta, x, z, y):
     return y - model(beta_0, theta_0, beta, theta, x, z)
 
 
-def derivative_wrt_beta_i(beta_0, theta_0, beta, theta, x, z, y, i, alpha, lam):
+def derivative_wrt_beta_j(beta_0, theta_0, beta, theta, x, z, y, j, alpha, lam):
     r = compute_r(beta_0, theta_0, beta, theta, x, z, y)
-    beta_j_theta_j = np.hstack((beta[i], theta[i, :]))
-    u = 0 if all_close_to(beta_j_theta_j, 0) else beta[i] / la.norm(beta_j_theta_j, 2)
-    return (-1/len(r)) * x[:, i].T @ r + (1 - alpha) * lam * u
+    beta_j_theta_j = np.hstack((beta[j], theta[j, :]))
+    u = 0 if all_close_to(beta_j_theta_j, 0) else beta[j] / la.norm(beta_j_theta_j, 2)
+    return (-1/len(r)) * x[:, j].T @ r + (1 - alpha) * lam * u
 
 
-def derivative_wrt_theta_i(beta_0, theta_0, beta, theta, x, z, y, i, alpha, lam):
-    beta_j = beta[i]
-    theta_j = theta[i, :]
+def derivative_wrt_theta_j(beta_0, theta_0, beta, theta, x, z, y, j, alpha, lam):
+    beta_j = beta[j]
+    theta_j = theta[j, :]
 
     r = compute_r(beta_0, theta_0, beta, theta, x, z, y)
-    w_j = compute_w_j(x, z, i)
+    w_j = compute_w_j(x, z, j)
 
     beta_j_theta_j = np.hstack((beta_j, theta_j))
     u2 = 0 if all_close_to(beta_j_theta_j, 0) else theta_j / la.norm(beta_j_theta_j, 2)
 
     u3 = 0 if all_close_to(theta_j, 0) else theta_j / la.norm(theta_j, 2)
 
-    v = np.sign(theta[i, :])
+    v = np.sign(theta[j, :])
 
     return (-1/len(r)) * w_j.T @ r + (1 - alpha) * lam * (u2 + u3) + alpha * lam * v

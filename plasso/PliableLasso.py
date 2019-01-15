@@ -1,5 +1,5 @@
+import warnings
 import pandas as pd
-import scipy.optimize as opt
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 
@@ -39,7 +39,7 @@ class PliableLasso(BaseEstimator):
 
     def _fit_convex_optimization(self, X, Z, y):
         import cvxpy as cvx
-        from .cvxHelpers import j_cvx
+        from .cvxHelpers import objective_cvx
 
         self.history = []
 
@@ -62,7 +62,7 @@ class PliableLasso(BaseEstimator):
 
         # Fit with Convex Optimisation
         problem = cvx.Problem(
-            cvx.Minimize(j_cvx(beta_0, theta_0, beta, theta, X, y, Z, alpha, lam))
+            cvx.Minimize(objective_cvx(beta_0, theta_0, beta, theta, X, y, Z, alpha, lam))
         )
         # Solve on a decreasing lambda path
         problem.solve(verbose=self.verbose, solver=cvx.CVXOPT, max_iter=self.max_iter)
@@ -75,77 +75,107 @@ class PliableLasso(BaseEstimator):
         return self
 
     def _fit_coordinate_descent(self, X, Z, y):
-        self.history = []
-
-        # NOTE: wtf this is an O(nk)
-        alpha, lam = self.alpha, self.lam  # So I don't have to keep writing self
         n, p = X.shape
         k = Z.shape[1]
 
-        self.beta_0, self.theta_0, self.beta, self.theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
-        self.history.append(j(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, alpha, lam))
-        print(f'Initial Objective J = {self.history[-1]:0.5f}')
-
-        # Step 1: Compute beta_0 and theta_0
-        if self.fit_intercepts:
-            self.beta_0, self.theta_0, _ = estimate_intercepts(Z, y)
-
-        self.history.append(j(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, alpha, lam))
-        print(f'Post Intercepts Objective J = {self.history[-1]:0.5f}')
+        # Step 1: Setup
+        alpha, lam = self.alpha, self.lam  # So I don't have to keep writing self
+        beta_0, theta_0, beta, theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
 
         # Step 2: Update coefficients
         for i in range(self.max_iter):
+            # TODO 1/14/2019 estimate beta_0 and theta_0
+            beta_new, theta_new = beta.copy(), theta.copy()
+            iter_prev_score = objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
 
             # Iterate through all p features
-            for pi in range(p):
-                r_minus_j = y - partial_model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, pi)
+            tolerance = 1e-3
+            for j in range(p):
+                x_j = X[:, j]
+                r_min_j = y - partial_model(beta_0, theta_0, beta, theta, X, Z, j)
+                w_j = compute_w_j(X, Z, j)
 
-                # Condition 17
-                x_j_t_dot_r_minus_j_over_n = (v2a(X[:, pi]).T @ r_minus_j) / n
-                cond_17a = abs(x_j_t_dot_r_minus_j_over_n)
-                cond_17b = soft_thres(compute_w_j(X, Z, pi).T @ r_minus_j / n, alpha * lam)
-                cond_17b = la.norm(cond_17b, 2)
-                if cond_17a <= (1 - alpha) * lam and cond_17b <= 2 * (1 - alpha) * lam:
-                    # Step 2.a: beta_j_hat == 0 and theta_j_hat == 0
-                    continue  # skip to next predictor
+                cond_17a = np.abs(x_j.T @ r_min_j / n) <= (1-alpha) * lam
+                cond_17b = la.norm(soft_thres(w_j.T @ r_min_j / n, alpha * lam), 2) <= 2 * (1-alpha) * lam
+
+                if cond_17a and cond_17b:
+                    if self.verbose >= 2:
+                        print(f'beta_{j} == 0 and theta_{j} == 0')
+
                 else:
-                    # Equation 18
-                    beta_j_hat = n / la.norm(X[:, pi] ** 2, 2)
-                    beta_j_hat = beta_j_hat * soft_thres(x_j_t_dot_r_minus_j_over_n, (1 - alpha) * lam)
+                    beta_j_hat = (n / la.norm(x_j, 2)**2) * soft_thres(x_j.T @ r_min_j / n, (1-alpha) * lam)
 
-                    cond_19 = compute_w_j(X, Z, pi).T @ (r_minus_j - X[:, pi] * beta_j_hat)
-                    cond_19 = soft_thres(cond_19 / n, alpha * lam)
-                    cond_19 = la.norm(cond_19, 2)
-                    if cond_19 <= (1 - alpha) * lam:
-                        # Step 2.b: beta_j_hat != 0, theta_j_hat == 0
-                        self.beta[pi] = beta_j_hat
-                        print(f'beta_{pi} == {beta_j_hat} theta_{pi} == {0}')
-                        continue
+                    cond_19 = la.norm(soft_thres(w_j.T @ (r_min_j - x_j * beta_j_hat) / n, alpha * lam), 2)
+                    cond_19 = cond_19 <= (1-alpha) * lam
+
+                    if cond_19:
+                        beta_new[j] = beta_j_hat
+                        if self.verbose >= 2:
+                            print(f'beta_{j} != 0 and theta_{j} == 0')
+                            print(f'-> {beta_j_hat}')
+
                     else:
-                        # beta_j_hat != 0 and theta_j_hat != 0
-                        # Generalised gradient procedure to find beta_j_hat and theta_j_hat
-                        # TODO (1/7/2019) Test if this works
-                        params = np.hstack((self.beta[pi], self.theta[pi, :]))
-                        assert len(params) == k+1
-                        params, _, _, _, warn_flag = opt.fmin(
-                            j_partial,
-                            params,
-                            (pi, self.beta_0, self.theta_0, self.beta.copy(), self.theta.copy(), X, Z, y, alpha, lam),
-                            full_output=True, disp=False
-                        )
-                        params[abs(params) < 1e-12] = 0
-                        if warn_flag == 0:
-                            print(f'beta_{pi} {params[0]} theta_{pi} {params[1:]}')
-                            self.beta[pi] = params[0]
-                            self.theta[pi, :] = params[1:]
+                        if self.verbose >= 2:
+                            print(f'beta_{j} != 0 and theta_{j} != 0')
+                        t, l, eps = 0.1, 1.0, 1e-5
+                        max_steps = 100
+                        objective_prev = objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
+                        for _ in range(max_steps):
+                            r = y - model(beta_0, theta_0, beta_new, theta_new, X, Z)
+                            theta_j_hat = theta_new[j, :]
+                            l2_gamma_hat = np.sqrt(beta_j_hat**2 + la.norm(theta_j_hat, 2)**2)
+
+                            grad_beta_j = -np.sum(x_j * r) / n
+                            grad_theta_j = -w_j.T @ r / n
+                            if self.verbose >= 3:
+                                print('--> Gradients')
+                                print(grad_beta_j)
+                                print(grad_theta_j)
+
+                            beta_j_new_hat = beta_0 - t * grad_beta_j * l
+                            beta_j_new_hat /= (1 + (t * (1-alpha) * lam) / l2_gamma_hat)
+
+                            theta_j_new_hat = soft_thres(theta_0 - t * grad_theta_j * l, t * alpha * lam)
+                            theta_j_new_hat /= (1 + t*(1-alpha)*lam*((1/la.norm(theta_j_hat, 2)) + (1/l2_gamma_hat)))
+                            if self.verbose >= 3:
+                                print('New beta =', beta_j_new_hat)
+                                print('New theta =', theta_j_new_hat)
+
+                            # Update Coefs
+                            beta_new[j] = beta_j_new_hat
+                            theta_new[j, :] = theta_j_new_hat
+                            objective_current = objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
+                            improvement = objective_prev - objective_current
+
+                            if abs(improvement) < tolerance:
+                                if self.verbose >= 2:
+                                    print(f'==> Converged {improvement}')
+                                break
+                            else:
+                                objective_prev = objective_current
+
                         else:
-                            print(f'Convergence Warning on j {pi} Flag #{warn_flag}')
+                            warnings.warn(f'==> Max Steps reached (Failed to converged) on beta_{j}')
 
-            self.history.append(j(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, alpha, lam))
+            beta, theta = beta_new.copy(), theta_new.copy()
 
-            from sklearn.metrics import r2_score
-            y_hat = model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z)
-            print(f'-> J_{i} = {self.history[-1]} | R2 = {r2_score(y, y_hat)}\n')
+            if self.verbose >= 1:
+                from sklearn.metrics import r2_score
+                print(f'==> Iter {i} = {r2_score(y, model(beta_0, theta_0, beta, theta, X, Z)):0.2%}')
+
+            #
+            iter_current_score = objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
+            if abs(iter_prev_score - iter_current_score) < tolerance:
+                if self.verbose >= 1:
+                    print('Early Termination')
+                break
+            else:
+                if self.verbose >= 1:
+                    print(f'J_{i} = {iter_prev_score - iter_current_score}')
+                iter_prev_score = iter_current_score
+
+        # Finally update model's parameters
+        self.beta_0, self.theta_0, self.beta, self.theta = beta_0, theta_0, beta, theta
 
     def predict(self, X, Z):
         if self.beta is None:
@@ -162,3 +192,6 @@ class PliableLasso(BaseEstimator):
     def score(self, X, Z, y):
         from sklearn.metrics import r2_score
         return r2_score(y, model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z))
+
+    def cost(self, X, Z, y):
+        return objective(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, self.alpha, self.lam)
