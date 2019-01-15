@@ -37,9 +37,21 @@ class PliableLasso(BaseEstimator):
         else:
             return self._fit_coordinate_descent(X, Z, y)
 
+    def _fallback_to_coordinate_descent(self, X, Z, y):
+        warnings.warn('cvxpy is required for convex optimisation. Falling back to coordinate descent')
+        return self._fit_coordinate_descent(X, Z, y)
+
     def _fit_convex_optimization(self, X, Z, y):
-        import cvxpy as cvx
-        from .cvxHelpers import objective_cvx
+        try:
+            import cvxpy as cvx
+            from .cvxHelpers import objective_cvx
+        except ModuleNotFoundError:
+            return self._fallback_to_coordinate_descent(X, Z, y)
+
+        # Check CVXPY version number
+        from distutils.version import LooseVersion
+        if LooseVersion(cvx.__version__) < LooseVersion('1.0.11'):
+            return self._fallback_to_coordinate_descent(X, Z, y)
 
         self.history = []
 
