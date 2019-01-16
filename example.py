@@ -2,7 +2,7 @@ import numpy as np
 from numpy.testing import assert_almost_equal
 from scipy import stats
 from plasso import PliableLasso
-from plasso.helpers import model, objective, derivative_wrt_beta_j, derivative_wrt_theta_j, lam_max
+from plasso.helpers import model, objective, lam_max
 from plasso.PliableLasso import OPTIMISE_COORDINATE, OPTIMISE_CONVEX
 from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as graph
@@ -56,25 +56,15 @@ if __name__ == '__main__':
     print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
     print()
 
-    # Derivative Test
-    print('=== Analytical Derivative ===')
-    for pi in range(p):
-        d_wrt_bj = derivative_wrt_beta_j(0, np.zeros(k), np.zeros(p), np.zeros((p, k)), x, z, y, pi, 0.5, 2)
-        print(f'dJ/dB_{pi} = {d_wrt_bj}')
-
-        d_wrt_tj = derivative_wrt_theta_j(0, np.zeros(k), np.zeros(p), np.zeros((p, k)), x, z, y, pi, 0.5, 2)
-        print(f'dJ/dT_{pi} = {d_wrt_tj}')
-        break
-
     y_gt = y.copy()
-    # y += 0.5 * stats.norm().rvs(n)  # Add noise from paper
+    y += 0.5 * stats.norm().rvs(n)  # Add noise from paper
 
     lambda_max = lam_max(x, y, 0.5)
     lambda_min = 1e-3 * lambda_max
     print(f'\nlambda range [{lambda_min}, {lambda_max}]')
 
     # Optimisation Test (Convex Optimisation)
-    plasso = PliableLasso(lam=0.5, fit_intercepts=False, verbose=2, max_iter=100)
+    plasso = PliableLasso(min_lam=0.5, fit_intercepts=False, verbose=False, max_iter=100)
 
     # print('\n=== Fitting Model via Convex Optimisation ===')
     # plasso.fit(x, z, y, optimizer=OPTIMISE_CONVEX)
@@ -118,14 +108,14 @@ if __name__ == '__main__':
     print(plasso.theta_0)
 
     print('\nbeta')
-    print(np.round(plasso.beta, 2))
+    print(plasso.beta.round(2))
 
     print('\ntheta')
-    print(np.round(plasso.theta, 2))
+    print(plasso.theta.round(2))
 
     print('--- Best Possible ---')
     print(f'R2 = {r2_score(y, y_gt):0.2%}, MSE = {mean_squared_error(y, y_gt):0.5f}')
-    print(f'J = {objective(beta_0, theta_0, beta, theta, x, z, y, alpha=plasso.alpha, lam=plasso.lam):0.5f}')
+    print(f'J = {objective(beta_0, theta_0, beta, theta, x, z, y, alpha=plasso.alpha, lam=plasso.min_lam):0.5f}')
 
     print('--- Obtained ---')
     print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')

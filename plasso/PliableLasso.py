@@ -15,8 +15,8 @@ class PliableLasso(BaseEstimator):
     """
     Pliable Lasso https://arxiv.org/pdf/1712.00484.pdf
     """
-    def __init__(self, lam=1.0, alpha=0.5, n_lam=50, max_iter=500, fit_intercepts=False, verbose=False):
-        self.lam, self.alpha = lam, alpha
+    def __init__(self, alpha=0.5, n_lam=50, max_iter=500, min_lam=0, fit_intercepts=False, verbose=False):
+        self.min_lam, self.alpha = min_lam, alpha
         self.n_lam = n_lam
         self.max_iter = max_iter
         self.fit_intercepts = fit_intercepts
@@ -57,7 +57,7 @@ class PliableLasso(BaseEstimator):
         # Hyperparameters
         alpha = self.alpha
         lam = cvx.Parameter(nonneg=True)
-        lam.value = self.lam
+        lam.value = self.min_lam
 
         # Parameters
         n, p = X.shape
@@ -91,14 +91,15 @@ class PliableLasso(BaseEstimator):
         k = Z.shape[1]
 
         # Step 1: Setup
-        alpha, lam = self.alpha, self.lam  # So I don't have to keep writing self
+        alpha = self.alpha  # So I don't have to keep writing self
         beta_0, theta_0, beta, theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
 
         # Same lambda path specs as GLMnet (Apparently faster than solving for a single lambda
         lambda_max = lam_max(X, y, alpha)
         lambda_min = 1e-3 * lambda_max
-        lambda_path = np.logspace(np.log10(lambda_max), np.log10(lambda_min), 100)
-        lambda_path = lambda_path[lambda_path >= lam]
+        lambda_path = np.logspace(np.log10(lambda_max), np.log10(lambda_min), self.n_lam)
+        lambda_path = lambda_path[lambda_path >= self.min_lam]
+        self.paths['lam'] = lambda_path
 
         # Step 2: Update coefficients
         for lam in lambda_path:  # NOTE: This means you are ignoring the self.lam value
@@ -107,6 +108,8 @@ class PliableLasso(BaseEstimator):
             self.paths['theta_0'].append(theta_0)
             self.paths['beta'].append(beta)
             self.paths['theta'].append(theta)
+
+            # w_list = [compute_w_j(X, Z, j) for j in range(p)]
 
             for i in range(self.max_iter):
                 # TODO 1/14/2019 estimate beta_0 and theta_0
@@ -118,13 +121,13 @@ class PliableLasso(BaseEstimator):
                 for j in range(p):
                     x_j = X[:, j]
                     r_min_j = y - partial_model(beta_0, theta_0, beta, theta, X, Z, j)
-                    w_j = compute_w_j(X, Z, j)
+                    w_j = compute_w_j(X, Z, j)  # w_list[j]
 
                     cond_17a = np.abs(x_j.T @ r_min_j / n) <= (1-alpha) * lam
                     cond_17b = la.norm(soft_thres(w_j.T @ r_min_j / n, alpha * lam), 2) <= 2 * (1-alpha) * lam
 
                     if cond_17a and cond_17b:
-                        if self.verbose >= 3:
+                        if self.verbose >= 4:
                             print(f'beta_{j} == 0 and theta_{j} == 0')
 
                     else:
@@ -147,8 +150,8 @@ class PliableLasso(BaseEstimator):
                             objective_prev = objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
                             for _ in range(max_steps):
                                 r = y - model(beta_0, theta_0, beta_new, theta_new, X, Z)
+                                beta_j_hat = beta_new[j]  # Was this a problem?
                                 theta_j_hat = theta_new[j, :]
-                                l2_gamma_hat = np.sqrt(beta_j_hat**2 + la.norm(theta_j_hat, 2)**2)
 
                                 grad_beta_j = -np.sum(x_j * r) / n
                                 grad_theta_j = -w_j.T @ r / n
@@ -157,16 +160,15 @@ class PliableLasso(BaseEstimator):
                                     print(grad_beta_j)
                                     print(grad_theta_j)
 
-                                beta_j_new_hat = beta_0 - t * grad_beta_j * l
-                                beta_j_new_hat /= (1 + (t * (1-alpha) * lam) / l2_gamma_hat)
-
-                                theta_j_new_hat = soft_thres(theta_0 - t * grad_theta_j * l, t * alpha * lam)
-                                theta_denom = 1 + t*(1-alpha)*lam*((1/la.norm(theta_j_hat, 2)) + (1/l2_gamma_hat))
-                                theta_j_new_hat /= 1 if theta_denom == np.inf else theta_denom
+                                beta_j_new_hat, theta_j_new_hat = solve_abg(
+                                    beta_j_hat, theta_j_hat,
+                                    grad_beta_j, grad_theta_j,
+                                    alpha, lam, t
+                                )
 
                                 if self.verbose >= 3:
-                                    print('New beta =', beta_j_new_hat)
-                                    print('New theta =', theta_j_new_hat)
+                                    print(f'new beta_{j} =', beta_j_new_hat)
+                                    print(f'new theta_{j} =', theta_j_new_hat)
 
                                 # Update Coefs
                                 beta_new[j] = beta_j_new_hat
@@ -176,7 +178,7 @@ class PliableLasso(BaseEstimator):
 
                                 if abs(improvement) < tolerance:
                                     if self.verbose >= 2:
-                                        print(f'==> Converged {improvement}')
+                                        print(f'==> Step converged j = {j} : {improvement}')
                                     break
                                 else:
                                     objective_prev = objective_current
@@ -184,17 +186,17 @@ class PliableLasso(BaseEstimator):
                             else:
                                 warnings.warn(f'==> Max Steps reached (Failed to converged) on beta_{j}')
 
-                    beta, theta = beta_new.copy(), theta_new.copy()  # TODO (1/15/2019) NOTE: temp added to inner loop
+                    beta, theta = beta_new.copy(), theta_new.copy()
 
                 if self.verbose >= 1:
                     from sklearn.metrics import r2_score
-                    print(f'==> Iter {i} = {r2_score(y, model(beta_0, theta_0, beta, theta, X, Z)):0.2%}\n')
+                    score_i = r2_score(y, model(beta_0, theta_0, beta, theta, X, Z))
+                    print(f'==> Iter {i} @ lam {lam:0.3f} = {score_i:0.2%}')
 
-                #
                 iter_current_score = objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
                 if abs(iter_prev_score - iter_current_score) < tolerance:
                     if self.verbose >= 1:
-                        print('Early Termination')
+                        print(f'==> Converged on lam_i = {lam:0.3f}\n')
                     break
                 else:
                     if self.verbose >= 1:
@@ -212,7 +214,7 @@ class PliableLasso(BaseEstimator):
 
     def _reset_paths_dict(self):
         self.paths = {}
-        for var in ['beta_0', 'theta_0', 'beta', 'theta']:
+        for var in ['lam', 'beta_0', 'theta_0', 'beta', 'theta']:
             self.paths[var] = []
 
     def predict(self, X, Z):
@@ -232,4 +234,4 @@ class PliableLasso(BaseEstimator):
         return r2_score(y, model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z))
 
     def cost(self, X, Z, y):
-        return objective(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, self.alpha, self.lam)
+        return objective(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, self.alpha, self.min_lam)
