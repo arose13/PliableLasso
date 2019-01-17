@@ -15,7 +15,7 @@ class PliableLasso(BaseEstimator):
     """
     Pliable Lasso https://arxiv.org/pdf/1712.00484.pdf
     """
-    def __init__(self, alpha=0.5, n_lam=50, max_iter=500, min_lam=0, fit_intercepts=False, verbose=False):
+    def __init__(self, alpha=0.5, n_lam=50, max_iter=100, min_lam=0, fit_intercepts=False, verbose=False):
         self.min_lam, self.alpha = min_lam, alpha
         self.n_lam = n_lam
         self.max_iter = max_iter
