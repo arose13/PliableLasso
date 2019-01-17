@@ -38,9 +38,9 @@ def quad_solution(u, v, w):
     return root1, root2
 
 
-def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, tt):
+def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
     """
-    Solves a and b so gradient iterations of theta are not needed.
+    Solves a and b so gradient iterations of theta are not needed. Equation (22)
 
     :param beta_j:
     :param theta_j:
@@ -48,66 +48,62 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, tt):
     :param grad_theta:
     :param alpha:
     :param lam:
-    :param tt:
+    :param t: Backtracking parameter. Controlled in the fit loop currently set to 0.1
     :return:
     """
+    # Convergence hyperparameters
     big, eps = 10e9, 1e-3
 
-    g1 = beta_j - tt * grad_beta
+    g1 = np.abs(beta_j - t * grad_beta)
 
-    scrat = theta_j - tt * grad_theta
+    g2_thres = t * alpha * lam
+    c = t * (1 - alpha) * lam
 
-    tt2 = tt * alpha * lam
+    scrat = soft_thres(theta_j - t * grad_theta, g2_thres)
+    g2 = np.sqrt(scrat @ scrat)  # Is this fast than an l2 norm?
 
-    scrat2 = soft_thres(scrat, tt2)
-
-    ng1 = np.abs(g1)
-    ng2 = np.sqrt(scrat2 @ scrat2)
-
-    cc = tt * (1-alpha) * lam
-
-    root1, root2 = quad_solution(1, 2*cc, 2*cc*ng2-ng1**2-ng2**2)
+    root1, root2 = quad_solution(1, 2*c, 2*c*g2-g1**2-g2**2)
 
     a = np.array([
-        ng1 * root1 / (cc + root1),
-        ng1 * root2 / (cc + root2),
-        ng1 * root1 / (cc + root2),
-        ng1 * root2 / (cc + root1)
+        g1 * root1 / (c + root1),
+        g1 * root2 / (c + root2),
+        g1 * root1 / (c + root2),
+        g1 * root2 / (c + root1)
     ])
     b = np.array([
-        root1 * (cc - ng2) / (cc + root1),
-        root2 * (cc - ng2) / (cc + root2),
-        root1 * (cc - ng2) / (cc + root2),
-        root2 * (cc - ng2) / (cc + root1)
+        root1 * (c - g2) / (c + root1),
+        root2 * (c - g2) / (c + root2),
+        root1 * (c - g2) / (c + root2),
+        root2 * (c - g2) / (c + root1)
     ])
 
-    xmin = big
-    jhat, khat = 0, 0
+    x_min = big
+    j_hat, k_hat = 0, 0
     for j in range(4):
         for k in range(4):
-            den = np.sqrt(a[j]**2 + b[k]**2)
-            if den > 0:
-                val1 = (1 + (cc / den)) * a[j] - ng1
-                val2 = (1 + cc * (1 / b[k] + 1 / den)) * b[k] - ng2
+            denominator = np.sqrt(a[j]**2 + b[k]**2)
+            if denominator > 0:
+                val1 = (1 + (c / denominator)) * a[j] - g1
+                val2 = (1 + c * (1 / b[k] + 1 / denominator)) * b[k] - g2
 
                 temp = np.abs(val1) + np.abs(val2)
-                if temp < xmin:
-                    jhat, khat = j, k
-                    xmin = temp
+                if temp < x_min:
+                    j_hat, k_hat = j, k
+                    x_min = temp
 
-    if np.abs(xmin) > eps:
+    if np.abs(x_min) > eps:
         print('Failed to Solve ABG')
 
-    if a[jhat] < 0 or b[khat] < 0:
+    if a[j_hat] < 0 or b[k_hat] < 0:
         print('Warning! One of the norms are negative [Solve ABG]')
 
-    xnorm = np.sqrt(a[jhat]**2 + b[khat]**2)
+    xnorm = np.sqrt(a[j_hat]**2 + b[k_hat]**2)
 
-    beta_j_hat = (beta_j - tt * grad_beta) / (1 + cc/xnorm)
+    beta_j_hat = (beta_j - t * grad_beta) / (1 + c / xnorm)
 
-    scrat2 = theta_j - tt * grad_theta
-    theta_j_hat = soft_thres(scrat2, tt2)
-    theta_j_hat = theta_j_hat / (1 + cc * (1/xnorm + 1/b[khat]))
+    scrat = theta_j - t * grad_theta
+    theta_j_hat = soft_thres(scrat, g2_thres)
+    theta_j_hat = theta_j_hat / (1 + c * (1/xnorm + 1/b[k_hat]))
 
     return beta_j_hat, theta_j_hat
 
