@@ -1,4 +1,4 @@
-plasso [WIP]
+plasso
 ===============================
 
 Author: Stephen Anthony Rose
