@@ -102,6 +102,8 @@ class PliableLasso(BaseEstimator):
         lambda_min = 1e-3 * lambda_max
         lambda_path = np.logspace(np.log10(lambda_max), np.log10(lambda_min), self.n_lam)
         lambda_path = lambda_path[lambda_path >= self.min_lam]
+        if len(lambda_path) == 0:
+            raise ValueError(f'`min_lam` was set too high! Maximum lambda for this problem is {lambda_max}')
         self.paths['lam'] = lambda_path
 
         func = PliableLassoModelHelper(X, Z)
