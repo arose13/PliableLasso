@@ -112,21 +112,6 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, tt):
     return beta_j_hat, theta_j_hat
 
 
-def compute_w_j(x, z, j: int):
-    """
-    Performs the elementwise multiplication of X_j with Z
-
-    :param x:
-    :param z:
-    :param j:
-    :return:
-    """
-    # TODO 12/23/2018 add caching decorating for when the function inputs are the same
-    k = z.shape[1]
-    x_j = np.tile(v2a(x[:, j]), (1, k))
-    return x_j * z
-
-
 def estimate_intercepts(z, y):
     lm = LinearRegression()
     lm.fit(z, y)
@@ -137,155 +122,176 @@ def estimate_intercepts(z, y):
     return beta_0, theta_0, y
 
 
-def model(beta_0, theta_0, beta, theta, x, z):
+class PliableLassoModelHelper:
     """
-    The pliable lasso model described in the paper
-    y ~ f(x)
-
-    formulated as
-
-    y ~ b_0 + Z theta_0 + X b + \sum( w_j theta_ji )
-
-    :param beta_0:
-    :param theta_0:
-    :param beta:
-    :param theta:
-    :param x:
-    :param z:
-    :return:
+    This class allows for runtime optimised coordinate descent by trying to more aggressively cache results
     """
-    n, p, k = x.shape[0], x.shape[1], z.shape[1]
+    def __init__(self, X=None, Z=None):
+        self.w_j_list = None  # Dont use an if else statement since compute_w_j() needs this to exist first.
+        if X is not None and Z is not None:
+            self.w_j_list = [self.compute_w_j(X, Z, j) for j in range(X.shape[1])]
 
-    intercepts = beta_0 + (z @ theta_0)
+    def model(self, beta_0, theta_0, beta, theta, x, z):
+        """
+        The pliable lasso model described in the paper
+        y ~ f(x)
 
-    shared_model = x @ beta
+        formulated as
 
-    pliable = np.zeros(n)
-    for j_i in range(p):
-        w_j = compute_w_j(x, z, j_i)
-        pliable = pliable + (w_j @ theta[j_i, :])
+        y ~ b_0 + Z theta_0 + X b + \sum( w_j theta_ji )
 
-    return intercepts + shared_model + pliable
+        :param beta_0:
+        :param theta_0:
+        :param beta:
+        :param theta:
+        :param x:
+        :param z:
+        :return:
+        """
+        n, p, k = x.shape[0], x.shape[1], z.shape[1]
 
+        intercepts = beta_0 + (z @ theta_0)
 
-def partial_model(beta_0, theta_0, beta, theta, x, z, ignore_j):
-    """
-    y ~ f(x) with X_j removed from the model
+        shared_model = x @ beta
 
-    :param beta_0:
-    :param theta_0:
-    :param beta:
-    :param theta:
-    :param x:
-    :param z:
-    :param ignore_j:
-    :return:
-    """
-    beta[ignore_j] = 0.0
-    theta[ignore_j, :] = 0.0
-    return model(beta_0, theta_0, beta, theta, x, z)
+        pliable = np.zeros(n)
+        for j_i in range(p):
+            w_j = self.compute_w_j(x, z, j_i)
+            pliable = pliable + (w_j @ theta[j_i, :])
 
+        return intercepts + shared_model + pliable
 
-def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
-    """
-    Full objective function J(beta, theta) described in the paper
+    def partial_model(self, beta_0, theta_0, beta, theta, x, z, ignore_j):
+        """
+        y ~ f(x) with X_j removed from the model
 
-    :param beta_0:
-    :param theta_0:
-    :param beta:
-    :param theta:
-    :param x:
-    :param z:
-    :param y:
-    :param alpha:
-    :param lam:
-    :return:
-    """
-    n = len(y)
+        :param beta_0:
+        :param theta_0:
+        :param beta:
+        :param theta:
+        :param x:
+        :param z:
+        :param ignore_j:
+        :return:
+        """
+        beta[ignore_j] = 0.0
+        theta[ignore_j, :] = 0.0
+        return self.model(beta_0, theta_0, beta, theta, x, z)
 
-    mse = (1/(2*n)) * la.norm(y - model(beta_0, theta_0, beta, theta, x, z), 2)**2
-    beta_matrix = v2a(beta)
+    def objective(self, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
+        """
+        Full objective function J(beta, theta) described in the paper
 
-    penalty_1 = la.norm(np.hstack([beta_matrix, theta]), 2, axis=1).sum()
-    penalty_2 = la.norm(theta, 2, axis=1).sum()
-    penalty_3 = np.abs(theta).sum()  # sum(theta_jk)
+        :param beta_0:
+        :param theta_0:
+        :param beta:
+        :param theta:
+        :param x:
+        :param z:
+        :param y:
+        :param alpha:
+        :param lam:
+        :return:
+        """
+        n = len(y)
 
-    cost = mse + (1 - alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
-    return cost
+        mse = (1 / (2 * n)) * la.norm(y - self.model(beta_0, theta_0, beta, theta, x, z), 2) ** 2
+        beta_matrix = v2a(beta)
 
+        penalty_1 = la.norm(np.hstack([beta_matrix, theta]), 2, axis=1).sum()
+        penalty_2 = la.norm(theta, 2, axis=1).sum()
+        penalty_3 = np.abs(theta).sum()
 
-def partial_objective(params_j, j_i, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
-    """
-    Computes the cost function J with feature _j removed from the model
+        cost = mse + (1 - alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
+        return cost
 
-    :param params_j:
-    :param j_i:
-    :param beta_0:
-    :param theta_0:
-    :param beta:
-    :param theta:
-    :param x:
-    :param z:
-    :param y:
-    :param alpha:
-    :param lam:
-    :return:
-    """
-    beta_j, theta_j = params_j[0], params_j[1:]
-    beta[j_i] = beta_j
-    theta[j_i, :] = theta_j
-    return objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam)
+    def partial_objective(self, params_j, j_i, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
+        """
+        Computes the cost function J with feature _j removed from the model
 
+        :param params_j:
+        :param j_i:
+        :param beta_0:
+        :param theta_0:
+        :param beta:
+        :param theta:
+        :param x:
+        :param z:
+        :param y:
+        :param alpha:
+        :param lam:
+        :return:
+        """
+        beta_j, theta_j = params_j[0], params_j[1:]
+        beta[j_i] = beta_j
+        theta[j_i, :] = theta_j
+        return self.objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam)
 
-def derivative_wrt_beta_j(beta_0, theta_0, beta, theta, x, z, y, j, alpha, lam):
-    """
-    Full Derivative with respect to beta_j as described in the paper
+    def compute_w_j(self, x, z, j: int):
+        """
+        Performs the elementwise multiplication of X_j with Z
 
-    :param beta_0:
-    :param theta_0:
-    :param beta:
-    :param theta:
-    :param x:
-    :param z:
-    :param y:
-    :param j:
-    :param alpha:
-    :param lam:
-    :return:
-    """
-    r = y - model(beta_0, theta_0, beta, theta, x, z)
-    beta_j_theta_j = np.hstack((beta[j], theta[j, :]))
-    u = 0 if all_close_to(beta_j_theta_j, 0) else beta[j] / la.norm(beta_j_theta_j, 2)
-    return (-1/len(r)) * x[:, j].T @ r + (1 - alpha) * lam * u
+        :param x:
+        :param z:
+        :param j:
+        :return:
+        """
+        if self.w_j_list is None:
+            w_j = np.zeros(z.shape)
+            for k_i in range(z.shape[1]):
+                w_j[:, k_i] = x[:, j] * z[:, k_i]
+            return w_j
+        else:
+            return self.w_j_list[j]
 
+    def derivative_wrt_beta_j(self, beta_0, theta_0, beta, theta, x, z, y, j, alpha, lam):
+        """
+        Full Derivative with respect to beta_j as described in the paper
 
-def derivative_wrt_theta_j(beta_0, theta_0, beta, theta, x, z, y, j, alpha, lam):
-    """
-    Full Derivative with respect to theta_j as described in the paper
+        :param beta_0:
+        :param theta_0:
+        :param beta:
+        :param theta:
+        :param x:
+        :param z:
+        :param y:
+        :param j:
+        :param alpha:
+        :param lam:
+        :return:
+        """
+        r = y - self.model(beta_0, theta_0, beta, theta, x, z)
+        beta_j_theta_j = np.hstack((beta[j], theta[j, :]))
+        u = 0 if all_close_to(beta_j_theta_j, 0) else beta[j] / la.norm(beta_j_theta_j, 2)
+        return (-1 / len(r)) * x[:, j].T @ r + (1 - alpha) * lam * u
 
-    :param beta_0:
-    :param theta_0:
-    :param beta:
-    :param theta:
-    :param x:
-    :param z:
-    :param y:
-    :param j:
-    :param alpha:
-    :param lam:
-    :return:
-    """
-    beta_j = beta[j]
-    theta_j = theta[j, :]
+    def derivative_wrt_theta_j(self, beta_0, theta_0, beta, theta, x, z, y, j, alpha, lam):
+        """
+        Full Derivative with respect to theta_j as described in the paper
 
-    r = y - model(beta_0, theta_0, beta, theta, x, z)
-    w_j = compute_w_j(x, z, j)
+        :param beta_0:
+        :param theta_0:
+        :param beta:
+        :param theta:
+        :param x:
+        :param z:
+        :param y:
+        :param j:
+        :param alpha:
+        :param lam:
+        :return:
+        """
+        beta_j = beta[j]
+        theta_j = theta[j, :]
 
-    beta_j_theta_j = np.hstack((beta_j, theta_j))
-    u2 = 0 if all_close_to(beta_j_theta_j, 0) else theta_j / la.norm(beta_j_theta_j, 2)
+        r = y - self.model(beta_0, theta_0, beta, theta, x, z)
+        w_j = self.compute_w_j(x, z, j)
 
-    u3 = 0 if all_close_to(theta_j, 0) else theta_j / la.norm(theta_j, 2)
+        beta_j_theta_j = np.hstack((beta_j, theta_j))
+        u2 = 0 if all_close_to(beta_j_theta_j, 0) else theta_j / la.norm(beta_j_theta_j, 2)
 
-    v = np.sign(theta[j, :])
+        u3 = 0 if all_close_to(theta_j, 0) else theta_j / la.norm(theta_j, 2)
 
-    return (-1/len(r)) * w_j.T @ r + (1 - alpha) * lam * (u2 + u3) + alpha * lam * v
+        v = np.sign(theta[j, :])
+
+        return (-1 / len(r)) * w_j.T @ r + (1 - alpha) * lam * (u2 + u3) + alpha * lam * v

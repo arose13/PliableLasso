@@ -2,7 +2,7 @@ import numpy as np
 from numpy.testing import assert_almost_equal
 from scipy import stats
 from plasso import PliableLasso
-from plasso.helpers import model, objective, lam_max
+from plasso.helpers import PliableLassoModelHelper, lam_max
 from plasso.PliableLasso import OPTIMISE_COORDINATE, OPTIMISE_CONVEX
 from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as graph
@@ -37,7 +37,8 @@ if __name__ == '__main__':
     y = x @ beta
     print(y.shape)
 
-    y_hat = model(beta_0, theta_0, beta, np.zeros((p, k)), x, z)
+    func = PliableLassoModelHelper()
+    y_hat = func.model(beta_0, theta_0, beta, np.zeros((p, k)), x, z)
     assert_almost_equal(y_hat, y)
     print('Model does reduce to Lasso')
     print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
@@ -50,7 +51,7 @@ if __name__ == '__main__':
     y += x[:, 3] * (beta[3] - 2*z[:, 1])
     print(y.shape)
 
-    y_hat = model(beta_0, theta_0, beta, theta, x, z)
+    y_hat = func.model(beta_0, theta_0, beta, theta, x, z)
     assert_almost_equal(y_hat, y)
     print('Model correctly computes Pliables')
     print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
@@ -115,7 +116,7 @@ if __name__ == '__main__':
 
     print('--- Best Possible ---')
     print(f'R2 = {r2_score(y, y_gt):0.2%}, MSE = {mean_squared_error(y, y_gt):0.5f}')
-    print(f'J = {objective(beta_0, theta_0, beta, theta, x, z, y, alpha=plasso.alpha, lam=plasso.min_lam):0.5f}')
+    print(f'J = {func.objective(beta_0, theta_0, beta, theta, x, z, y, alpha=plasso.alpha, lam=plasso.min_lam):0.5f}')
 
     print('--- Obtained ---')
     print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')

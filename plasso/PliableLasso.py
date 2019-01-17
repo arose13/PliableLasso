@@ -32,6 +32,9 @@ class PliableLasso(BaseEstimator):
         self.history = []
         self.paths = {}
 
+        # Prediction helpers
+        self.static_func = PliableLassoModelHelper()
+
     def fit(self, X, Z, y, optimizer=OPTIMISE_COORDINATE):
         if optimizer == OPTIMISE_CONVEX:
             return self._fit_convex_optimization(X, Z, y)
@@ -101,6 +104,8 @@ class PliableLasso(BaseEstimator):
         lambda_path = lambda_path[lambda_path >= self.min_lam]
         self.paths['lam'] = lambda_path
 
+        func = PliableLassoModelHelper(X, Z)
+
         # Step 2: Update coefficients
         for lam in lambda_path:  # NOTE: This means you are ignoring the self.lam value
             # Update Paths
@@ -109,19 +114,17 @@ class PliableLasso(BaseEstimator):
             self.paths['beta'].append(beta)
             self.paths['theta'].append(theta)
 
-            # w_list = [compute_w_j(X, Z, j) for j in range(p)]
-
             for i in range(self.max_iter):
                 # TODO 1/14/2019 estimate beta_0 and theta_0
                 beta_new, theta_new = beta.copy(), theta.copy()
-                iter_prev_score = objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
+                iter_prev_score = func.objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
 
                 # Iterate through all p features
                 tolerance = 1e-3
                 for j in range(p):
                     x_j = X[:, j]
-                    r_min_j = y - partial_model(beta_0, theta_0, beta, theta, X, Z, j)
-                    w_j = compute_w_j(X, Z, j)  # w_list[j]
+                    r_min_j = y - func.partial_model(beta_0, theta_0, beta, theta, X, Z, j)
+                    w_j = func.compute_w_j(X, Z, j)
 
                     cond_17a = np.abs(x_j.T @ r_min_j / n) <= (1-alpha) * lam
                     cond_17b = la.norm(soft_thres(w_j.T @ r_min_j / n, alpha * lam), 2) <= 2 * (1-alpha) * lam
@@ -147,9 +150,9 @@ class PliableLasso(BaseEstimator):
                                 print(f'beta_{j} != 0 and theta_{j} != 0')
                             t, l, eps = 0.1, 1.0, 1e-5
                             max_steps = 100
-                            objective_prev = objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
+                            objective_prev = func.objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
                             for _ in range(max_steps):
-                                r = y - model(beta_0, theta_0, beta_new, theta_new, X, Z)
+                                r = y - func.model(beta_0, theta_0, beta_new, theta_new, X, Z)
                                 beta_j_hat = beta_new[j]  # Was this a problem?
                                 theta_j_hat = theta_new[j, :]
 
@@ -173,7 +176,9 @@ class PliableLasso(BaseEstimator):
                                 # Update Coefs
                                 beta_new[j] = beta_j_new_hat
                                 theta_new[j, :] = theta_j_new_hat
-                                objective_current = objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
+                                objective_current = func.objective(
+                                    beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam
+                                )
                                 improvement = objective_prev - objective_current
 
                                 if abs(improvement) < tolerance:
@@ -190,10 +195,10 @@ class PliableLasso(BaseEstimator):
 
                 if self.verbose >= 1:
                     from sklearn.metrics import r2_score
-                    score_i = r2_score(y, model(beta_0, theta_0, beta, theta, X, Z))
+                    score_i = r2_score(y, func.model(beta_0, theta_0, beta, theta, X, Z))
                     print(f'==> Iter {i} @ lam {lam:0.3f} = {score_i:0.2%}')
 
-                iter_current_score = objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
+                iter_current_score = func.objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
                 if abs(iter_prev_score - iter_current_score) < tolerance:
                     if self.verbose >= 1:
                         print(f'==> Converged on lam_i = {lam:0.3f}\n')
@@ -227,11 +232,13 @@ class PliableLasso(BaseEstimator):
         if isinstance(Z, pd.Series) or isinstance(Z, pd.DataFrame):
             Z = Z.values
 
-        return model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z)
+        return self.static_func.model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z)
 
     def score(self, X, Z, y):
         from sklearn.metrics import r2_score
-        return r2_score(y, model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z))
+        return r2_score(y, self.static_func.model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z))
 
     def cost(self, X, Z, y):
-        return objective(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, self.alpha, self.min_lam)
+        return self.static_func.objective(
+            self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, self.alpha, self.min_lam
+        )
