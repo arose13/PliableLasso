@@ -148,6 +148,7 @@ class PliableLassoModelHelper:
         :param z:
         :return:
         """
+        # TODO 1/16/2019 NOTE: This whole function (model()) is the current slowest step.
         n, p, k = x.shape[0], x.shape[1], z.shape[1]
 
         intercepts = beta_0 + (z @ theta_0)
