@@ -99,7 +99,7 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, tt):
         print('Failed to Solve ABG')
 
     if a[jhat] < 0 or b[khat] < 0:
-        print('Failed: One of the norms are negative')
+        print('Warning! One of the norms are negative [Solve ABG]')
 
     xnorm = np.sqrt(a[jhat]**2 + b[khat]**2)
 

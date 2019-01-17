@@ -65,7 +65,7 @@ if __name__ == '__main__':
     print(f'\nlambda range [{lambda_min}, {lambda_max}]')
 
     # Optimisation Test (Convex Optimisation)
-    plasso = PliableLasso(min_lam=0.5, fit_intercepts=False, verbose=False, max_iter=100)
+    plasso = PliableLasso(min_lam=0.01, fit_intercepts=False, verbose=False, max_iter=100)
 
     # print('\n=== Fitting Model via Convex Optimisation ===')
     # plasso.fit(x, z, y, optimizer=OPTIMISE_CONVEX)
