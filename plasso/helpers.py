@@ -122,6 +122,7 @@ def estimate_intercepts(z, y):
     return beta_0, theta_0, y
 
 
+# noinspection PyPep8Naming
 class PliableLassoModelHelper:
     """
     This class allows for runtime optimised coordinate descent by trying to more aggressively cache results
