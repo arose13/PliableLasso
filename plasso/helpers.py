@@ -148,7 +148,6 @@ class PliableLassoModelHelper:
         :param z:
         :return:
         """
-        # TODO 1/16/2019 NOTE: This whole function (model()) is the current slowest step.
         n, p, k = x.shape[0], x.shape[1], z.shape[1]
 
         intercepts = beta_0 + (z @ theta_0)
@@ -156,9 +155,14 @@ class PliableLassoModelHelper:
         shared_model = x @ beta
 
         pliable = np.zeros(n)
-        for j_i in range(p):
-            w_j = self.compute_w_j(x, z, j_i)
-            pliable = pliable + (w_j @ theta[j_i, :])
+        # For performance, check if there are even nonzero values in theta
+        if np.any(theta):
+            # At least 1 nonzero value in theta
+            for j_i in range(p):
+                # For performance, screen if theta_j is nonzero before computing pliable
+                if np.any(theta[j_i, :]):
+                    w_j = self.compute_w_j(x, z, j_i)
+                    pliable = pliable + (w_j @ theta[j_i, :])
 
         return intercepts + shared_model + pliable
 
