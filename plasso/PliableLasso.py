@@ -111,12 +111,6 @@ class PliableLasso(BaseEstimator):
 
         # Step 2: Update coefficients
         for lam in lambda_path:  # NOTE: This means you are ignoring the self.lam value
-            # Update Paths
-            self.paths['beta_0'].append(beta_0)
-            self.paths['theta_0'].append(theta_0)
-            self.paths['beta'].append(beta)
-            self.paths['theta'].append(theta)
-
             for i in range(self.max_iter):
                 # TODO 1/14/2019 estimate beta_0 and theta_0
                 beta_new, theta_new = beta.copy(), theta.copy()
@@ -126,7 +120,7 @@ class PliableLasso(BaseEstimator):
                 tolerance = 1e-3
                 for j in range(p):
                     x_j = X[:, j]
-                    r_min_j = y - func.partial_model(beta_0, theta_0, beta, theta, X, Z, j)
+                    r_min_j = y - func.partial_model(beta_0, theta_0, beta_new, theta_new, X, Z, j)
                     w_j = func.compute_w_j(X, Z, j)
 
                     cond_17a = np.abs(x_j.T @ r_min_j / n) <= (1-alpha) * lam
@@ -210,6 +204,12 @@ class PliableLasso(BaseEstimator):
                     if self.verbose >= 1:
                         print(f'delta J_{i} = {iter_prev_score - iter_current_score}')
                     iter_prev_score = iter_current_score
+
+            # End of lam_i iteration. Update Paths
+            self.paths['beta_0'].append(beta_0)
+            self.paths['theta_0'].append(theta_0)
+            self.paths['beta'].append(beta)
+            self.paths['theta'].append(theta)
 
         # Finally update model's parameters
         self.beta_0, self.theta_0, self.beta, self.theta = beta_0, theta_0, beta, theta
