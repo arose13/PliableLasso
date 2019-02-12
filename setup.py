@@ -37,9 +37,9 @@ setup(
     keywords='',
     packages=find_packages(exclude=['docs', 'tests*']),
     include_package_data=True,
-    author='Stephen Anthony Rose',
+    author='Stephen Rose',
     install_requires=install_requires,
     dependency_links=dependency_links,
-    author_email='anthony@stephenro.se',
+    author_email='me@stephenro.se',
     zip_safe=False
 )
