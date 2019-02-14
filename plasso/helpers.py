@@ -95,7 +95,7 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
         print('Failed to Solve ABG')
 
     if a[j_hat] < 0 or b[k_hat] < 0:
-        print('Warning! One of the norms are negative [Solve ABG]')
+        print('Warning! One of the norms are negative [Solve ABG] (norms -> a:{:.5f} b:{:5f})'.format(a[j_hat], b[k_hat]))
 
     xnorm = np.sqrt(a[j_hat]**2 + b[k_hat]**2)
 
@@ -125,6 +125,7 @@ class PliableLassoModelHelper:
     """
     def __init__(self, X=None, Z=None):
         self.w_j_list = None  # Dont use an if else statement since compute_w_j() needs this to exist first.
+        self.non_zero_theta_j = set()
         if X is not None and Z is not None:
             self.w_j_list = [self.compute_w_j(X, Z, j) for j in range(X.shape[1])]
 
@@ -157,11 +158,19 @@ class PliableLassoModelHelper:
             # At least 1 nonzero value in theta
             for j_i in range(p):
                 # For performance, screen if theta_j is nonzero before computing pliable
-                if np.any(theta[j_i, :]):
-                    w_j = self.compute_w_j(x, z, j_i)
-                    pliable = pliable + (w_j @ theta[j_i, :])
+                if j_i in self.non_zero_theta_j:
+                    # First if prevents millions of np.any() which cumulatively can be very slow.
+                    pliable += self._compute_pliable(x, z, theta, j_i)
+                elif np.any(theta[j_i, :]):
+                    # Only compute the np.any() call when we aren't show
+                    pliable += self._compute_pliable(x, z, theta, j_i)
+                    self.non_zero_theta_j.add(j_i)
 
         return intercepts + shared_model + pliable
+
+    def _compute_pliable(self, x, z, theta_j, j_i: int):
+        w_j = self.compute_w_j(x, z, j_i)
+        return w_j @ theta_j[j_i, :]
 
     def partial_model(self, beta_0, theta_0, beta, theta, x, z, ignore_j):
         """

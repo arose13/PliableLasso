@@ -110,7 +110,7 @@ class PliableLasso(BaseEstimator):
         func = PliableLassoModelHelper(X, Z)
 
         # Step 2: Update coefficients
-        for lam in lambda_path:  # NOTE: This means you are ignoring the self.lam value
+        for nth_lam, lam in enumerate(lambda_path):  # NOTE: This means you are ignoring the self.lam value
             for i in range(self.max_iter):
                 # TODO 1/14/2019 estimate beta_0 and theta_0
                 beta_new, theta_new = beta.copy(), theta.copy()
@@ -127,7 +127,7 @@ class PliableLasso(BaseEstimator):
                     cond_17b = la.norm(soft_thres(w_j.T @ r_min_j / n, alpha * lam), 2) <= 2 * (1-alpha) * lam
 
                     if cond_17a and cond_17b:
-                        if self.verbose >= 4:
+                        if self.verbose >= 5:
                             print(f'beta_{j} == 0 and theta_{j} == 0')
 
                     else:
@@ -138,7 +138,7 @@ class PliableLasso(BaseEstimator):
 
                         if cond_19:
                             beta_new[j] = beta_j_hat
-                            if self.verbose >= 2:
+                            if self.verbose >= 3:
                                 print(f'beta_{j} != 0 and theta_{j} == 0')
                                 print(f'-> {beta_j_hat}')
 
@@ -155,7 +155,7 @@ class PliableLasso(BaseEstimator):
 
                                 grad_beta_j = -np.sum(x_j * r) / n
                                 grad_theta_j = -w_j.T @ r / n
-                                if self.verbose >= 3:
+                                if self.verbose >= 4:
                                     print('--> Gradients')
                                     print(grad_beta_j)
                                     print(grad_theta_j)
@@ -166,7 +166,7 @@ class PliableLasso(BaseEstimator):
                                     alpha, lam, t
                                 )
 
-                                if self.verbose >= 3:
+                                if self.verbose >= 4:
                                     print(f'new beta_{j} =', beta_j_new_hat)
                                     print(f'new theta_{j} =', theta_j_new_hat)
 
@@ -179,7 +179,7 @@ class PliableLasso(BaseEstimator):
                                 improvement = objective_prev - objective_current
 
                                 if abs(improvement) < tolerance:
-                                    if self.verbose >= 2:
+                                    if self.verbose >= 3:
                                         print(f'==> Step converged j = {j} : {improvement}')
                                     break
                                 else:
@@ -193,7 +193,7 @@ class PliableLasso(BaseEstimator):
                 if self.verbose >= 1:
                     from sklearn.metrics import r2_score
                     score_i = r2_score(y, func.model(beta_0, theta_0, beta, theta, X, Z))
-                    print(f'==> Iter {i} @ lam {lam:0.3f} = {score_i:0.2%}')
+                    print(f'==> {nth_lam} lam {lam:0.3f} @ Iter {i}, Rsq {score_i:0.2%}')
 
                 iter_current_score = func.objective(beta_0, theta_0, beta_new, theta_new, X, Z, y, alpha, lam)
                 if abs(iter_prev_score - iter_current_score) < tolerance:
@@ -201,7 +201,7 @@ class PliableLasso(BaseEstimator):
                         print(f'==> Converged on lam_i = {lam:0.3f}\n')
                     break
                 else:
-                    if self.verbose >= 1:
+                    if self.verbose >= 2:
                         print(f'delta J_{i} = {iter_prev_score - iter_current_score}')
                     iter_prev_score = iter_current_score
 
@@ -245,3 +245,25 @@ class PliableLasso(BaseEstimator):
         return self.static_func.objective(
             self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, self.alpha, self.min_lam
         )
+
+    def plot_coef_paths(self):
+        import matplotlib.pyplot as graph
+
+        # Plot coefficient paths
+        graph.plot(self.paths['lam'], self.paths['beta'])
+        graph.ylabel(r'$\beta$')
+        graph.xlabel(r'$\lambda$')
+        graph.xscale('log')
+
+    def plot_interaction_paths(self):
+        import matplotlib.pyplot as graph
+        p = self.paths.get('beta', None)
+        if p is None:
+            raise NotFittedError
+        p = p.shape[1]
+
+        for j in range(p):
+            graph.plot(self.paths['lam'], self.paths['theta'][:, j, :])
+        graph.ylabel(r'$\theta$')
+        graph.xlabel(r'$\lambda$')
+        graph.xscale('log')
