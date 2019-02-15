@@ -1,3 +1,4 @@
+import numpy as np
 from time import time
 from scipy import stats
 from plasso import PliableLasso
@@ -6,6 +7,7 @@ import matplotlib.pyplot as graph
 
 if __name__ == '__main__':
     # Setup
+    np.random.seed(1992)
     n = 200
     p = 10
     k = 5
