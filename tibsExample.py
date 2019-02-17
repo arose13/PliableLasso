@@ -19,9 +19,10 @@ if __name__ == '__main__':
     y += 3*stats.norm().rvs(n)
 
     # Fit model
+    model = PliableLasso()
+
     print('=== Fitting Model ===')
     start_time = time()
-    model = PliableLasso()
     model.fit(x, z, y)
     stop_time = time()
     print(f'Runtime : {stop_time - start_time:.5f} sec')

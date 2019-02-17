@@ -1,6 +1,6 @@
 import numpy as np
 import cvxpy as cvx
-from .helpers import v2a
+from .oldHelpers import v2a
 
 
 def compute_w_j(x, z, j):

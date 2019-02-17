@@ -1,33 +1,30 @@
-import numba
 import numpy as np
 import numpy.linalg as la
-from numba import jit, njit, jitclass
-from sklearn.linear_model import LinearRegression
+from numba import njit
+from functools import partial
 
 
-def all_close_to(a, value=0, tol=1e-7):
-    return np.all(abs(a - value) < tol)
+njit = partial(njit, cache=True)
 
 
-def lam_max(x, y, alpha):
+def lam_min_max(x, y, alpha, eps):
     """
-    Approximate the lowest value for lambda where all the coefficients will be zero
+    Approximate the minimum and maximum values for the lambda
 
     :param x:
     :param y:
     :param alpha:
+    :param eps:
     :return:
     """
-    n = len(y)
-    dots = np.zeros(x.shape[1])
-    for j in range(len(dots)):
+    assert 0 < eps < 1, '`eps` must be between 0 and 1'
+    n, p = x.shape
+    dots = np.zeros(p)
+    for j in range(p):
         dots[j] = x[:, j].T @ y
-    return np.abs(dots).max() / (n*alpha)
-
-
-@njit()
-def v2a(a):
-    return a.reshape((len(a), 1))
+    lam_max = np.abs(dots).max() / (n*alpha)
+    lam_min = eps * lam_max
+    return lam_max, lam_min
 
 
 @njit()
@@ -70,7 +67,7 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
     scrat = soft_thres(theta_j - t * grad_theta, g2_thres)
     g2 = np.sqrt(scrat @ scrat)  # Is this fast than an l2 norm?
 
-    root1, root2 = quad_solution(1, 2*c, 2*c*g2-g1**2-g2**2)
+    root1, root2 = quad_solution(1, 2 * c, 2 * c * g2 - g1 ** 2 - g2 ** 2)
 
     a = np.array([
         g1 * root1 / (c + root1),
@@ -89,7 +86,7 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
     j_hat, k_hat = 0, 0
     for j in range(4):
         for k in range(4):
-            denominator = np.sqrt(a[j]**2 + b[k]**2)
+            denominator = np.sqrt(a[j] ** 2 + b[k] ** 2)
             if denominator > 0:
                 val1 = (1 + (c / denominator)) * a[j] - g1
                 val2 = (1 + c * (1 / b[k] + 1 / denominator)) * b[k] - g2
@@ -99,25 +96,18 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
                     j_hat, k_hat = j, k
                     x_min = temp
 
-    # Commented out so numba can compile it
-    # if np.abs(x_min) > eps:
-    #     print('Failed to Solve ABG')
-    #
-    # if a[j_hat] < 0 or b[k_hat] < 0:
-    #     print('Warning! One of the norms are negative [Solve ABG] (norms -> a:{:.5f} b:{:5f})'.format(a[j_hat], b[k_hat]))
-
-    xnorm = np.sqrt(a[j_hat]**2 + b[k_hat]**2)
+    xnorm = np.sqrt(a[j_hat] ** 2 + b[k_hat] ** 2)
 
     beta_j_hat = (beta_j - t * grad_beta) / (1 + c / xnorm)
 
     scrat = theta_j - t * grad_theta
     theta_j_hat = soft_thres(scrat, g2_thres)
-    theta_j_hat = theta_j_hat / (1 + c * (1/xnorm + 1/b[k_hat]))
+    theta_j_hat = theta_j_hat / (1 + c * (1 / xnorm + 1 / b[k_hat]))
 
     return beta_j_hat, theta_j_hat
 
 
-@njit(parallel=True)
+@njit()
 def compute_w_j(x, z, j):
     w_j = np.zeros(z.shape)
     for k_i in range(z.shape[1]):
@@ -125,17 +115,18 @@ def compute_w_j(x, z, j):
     return w_j
 
 
-@njit(parallel=True)
-def compute_pliable(x, z, theta):
+@njit()
+def compute_pliable(x, z, theta, precomputed_w):
     n, p = x.shape
     pliable = np.zeros(n)
-    for j_i in range(p):
-        pliable += compute_w_j(x, z, j_i) @ theta[j_i, :]
+    for j in range(p):
+        w_j = precomputed_w[j]
+        pliable += w_j @ theta[j, :]
     return pliable
 
 
 @njit()
-def model(beta_0, theta_0, beta, theta, x, z):
+def model(beta_0, theta_0, beta, theta, x, z, precomputed_w):
     """
     The pliable lasso model described in the paper
     y ~ f(x)
@@ -144,6 +135,7 @@ def model(beta_0, theta_0, beta, theta, x, z):
 
     y ~ b_0 + Z theta_0 + X b + \sum( w_j theta_ji )
 
+    :param precomputed_w:
     :param beta_0:
     :param theta_0:
     :param beta:
@@ -153,19 +145,17 @@ def model(beta_0, theta_0, beta, theta, x, z):
     :return:
     """
     intercepts = beta_0 + (z @ theta_0)
-
     shared_model = x @ beta
-
-    pliable = compute_pliable(x, z, theta)
-
+    pliable = compute_pliable(x, z, theta, precomputed_w)
     return intercepts + shared_model + pliable
 
 
 @njit()
-def partial_model(beta_0, theta_0, beta, theta, x, z, ignore_j):
+def partial_model(beta_0, theta_0, beta, theta, x, z, j, precomputed_w):
     """
     y ~ f(x) with X_j removed from the model
 
+    :param precomputed_w:
     :param beta_0:
     :param theta_0:
     :param beta:
@@ -175,16 +165,17 @@ def partial_model(beta_0, theta_0, beta, theta, x, z, ignore_j):
     :param ignore_j:
     :return:
     """
-    beta[ignore_j] = 0.0
-    theta[ignore_j, :] = 0.0
-    return model(beta_0, theta_0, beta, theta, x, z)
+    beta[j] = 0.0
+    theta[j, :] = 0.0
+    return model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
 
 
-@jit()
-def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
+@njit()
+def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w):
     """
     Full objective function J(beta, theta) described in the paper
 
+    :param precomputed_w:
     :param beta_0:
     :param theta_0:
     :param beta:
@@ -196,238 +187,105 @@ def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
     :param lam:
     :return:
     """
-    n = len(y)
+    n, p = x.shape
+    k = z.shape[1]
 
-    mse = (1 / (2 * n)) * la.norm(y - model(beta_0, theta_0, beta, theta, x, z), 2) ** 2
-    beta_matrix = beta.reshape((len(beta), 1))
+    mse = (1 / (2 * n)) * la.norm(y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w), 2) ** 2
 
-    penalty_1 = la.norm(np.hstack([beta_matrix, theta]), 2, axis=1).sum()
-    penalty_2 = la.norm(theta, 2, axis=1).sum()
+    coef_matrix = np.zeros((p, k+1))
+    coef_matrix[:, :-1] = theta
+    coef_matrix[:, -1] = beta
+
+    # Numba does not support the axis kwarg on la.norm() [axis 1 means operates across rows]
+    penalty_1, penalty_2 = 0.0, 0.0
+    for j in range(p):
+        penalty_1 += la.norm(coef_matrix[j, :], 2)
+        penalty_2 += la.norm(theta[j, :], 2)
     penalty_3 = np.abs(theta).sum()
 
-    cost = mse + (1 - alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
+    cost = mse + (1-alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
     return cost
 
 
 @njit()
-def partial_objective(params_j, j_i, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
-    """
-    Computes the cost function J with feature _j removed from the model
+def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, max_iter):
+    n, p = x.shape
+    precomputed_w = [compute_w_j(x, z, j) for j in range(p)]
 
-    :param params_j:
-    :param j_i:
-    :param beta_0:
-    :param theta_0:
-    :param beta:
-    :param theta:
-    :param x:
-    :param z:
-    :param y:
-    :param alpha:
-    :param lam:
-    :return:
-    """
-    beta_j, theta_j = params_j[0], params_j[1:]
-    beta[j_i] = beta_j
-    theta[j_i, :] = theta_j
-    return objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam)
+    # Lists
+    beta_0_list = []
+    theta_0_list = []
+    beta_list = []
+    theta_list = []
 
+    for nth_lam, lam in enumerate(lam_path):
+        for i in range(max_iter):
+            iter_prev_score = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
 
-def estimate_intercepts(z, y):
-    lm = LinearRegression()
-    lm.fit(z, y)
+            # Iterate through all p features
+            tolerance = 1e-3
+            for j in range(p):
+                x_j = x[:, j]
+                r_min_j = y - partial_model(beta_0, theta_0, beta, theta, x, z, j, precomputed_w)
+                w_j = precomputed_w[j]
 
-    beta_0 = lm.intercept_
-    theta_0 = lm.coef_
-    y = y - lm.predict(z)
-    return beta_0, theta_0, y
+                # Check if beta_j == 0 and theta_j == 0
+                cond_17a = np.abs(x_j.T @ r_min_j / n) <= (1-alpha) * lam
+                cond_17b = la.norm(soft_thres(w_j.T @ r_min_j / n, alpha * lam), 2) <= 2 * (1-alpha) * lam
 
+                if cond_17a and cond_17b:
+                    # beta_j == 0 and theta_j == 0
+                    pass
+                else:
+                    beta_j_hat = (n / la.norm(x_j, 2)**2) * soft_thres(x_j.T @ r_min_j / n, (1-alpha) * lam)
 
-# noinspection PyPep8Naming
-# class PliableLassoModelHelper:
-#     """
-#     This class allows for runtime optimised coordinate descent by trying to more aggressively cache results
-#     """
-#     def __init__(self, X=None, Z=None):
-#         self.w_j_list = None  # Dont use an if else statement since compute_w_j() needs this to exist first.
-#         self.non_zero_theta_j = set()
-#         if X is not None and Z is not None:
-#             self.w_j_list = [self.compute_w_j(X, Z, j) for j in range(X.shape[1])]
-#
-#     def model(self, beta_0, theta_0, beta, theta, x, z):
-#         """
-#         The pliable lasso model described in the paper
-#         y ~ f(x)
-#
-#         formulated as
-#
-#         y ~ b_0 + Z theta_0 + X b + \sum( w_j theta_ji )
-#
-#         :param beta_0:
-#         :param theta_0:
-#         :param beta:
-#         :param theta:
-#         :param x:
-#         :param z:
-#         :return:
-#         """
-#         n, p, k = x.shape[0], x.shape[1], z.shape[1]
-#
-#         intercepts = beta_0 + (z @ theta_0)
-#
-#         shared_model = x @ beta
-#
-#         pliable = np.zeros(n)
-#         # For performance, check if there are even nonzero values in theta
-#         if np.any(theta):
-#             # At least 1 nonzero value in theta
-#             for j_i in range(p):
-#                 # For performance, screen if theta_j is nonzero before computing pliable
-#                 if j_i in self.non_zero_theta_j:
-#                     # First if prevents millions of np.any() which cumulatively can be very slow.
-#                     pliable += self._compute_pliable(x, z, theta, j_i)
-#                 elif np.any(theta[j_i, :]):
-#                     # Only compute the np.any() call when we aren't show
-#                     pliable += self._compute_pliable(x, z, theta, j_i)
-#                     self.non_zero_theta_j.add(j_i)
-#
-#         return intercepts + shared_model + pliable
-#
-#     def _compute_pliable(self, x, z, theta_j, j_i: int):
-#         w_j = self.compute_w_j(x, z, j_i)
-#         return w_j @ theta_j[j_i, :]
-#
-#     def partial_model(self, beta_0, theta_0, beta, theta, x, z, ignore_j):
-#         """
-#         y ~ f(x) with X_j removed from the model
-#
-#         :param beta_0:
-#         :param theta_0:
-#         :param beta:
-#         :param theta:
-#         :param x:
-#         :param z:
-#         :param ignore_j:
-#         :return:
-#         """
-#         beta[ignore_j] = 0.0
-#         theta[ignore_j, :] = 0.0
-#         return self.model(beta_0, theta_0, beta, theta, x, z)
-#
-#     def objective(self, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
-#         """
-#         Full objective function J(beta, theta) described in the paper
-#
-#         :param beta_0:
-#         :param theta_0:
-#         :param beta:
-#         :param theta:
-#         :param x:
-#         :param z:
-#         :param y:
-#         :param alpha:
-#         :param lam:
-#         :return:
-#         """
-#         n = len(y)
-#
-#         mse = (1 / (2 * n)) * la.norm(y - self.model(beta_0, theta_0, beta, theta, x, z), 2) ** 2
-#         beta_matrix = v2a(beta)
-#
-#         penalty_1 = la.norm(np.hstack([beta_matrix, theta]), 2, axis=1).sum()
-#         penalty_2 = la.norm(theta, 2, axis=1).sum()
-#         penalty_3 = np.abs(theta).sum()
-#
-#         cost = mse + (1 - alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
-#         return cost
-#
-#     def partial_objective(self, params_j, j_i, beta_0, theta_0, beta, theta, x, z, y, alpha, lam):
-#         """
-#         Computes the cost function J with feature _j removed from the model
-#
-#         :param params_j:
-#         :param j_i:
-#         :param beta_0:
-#         :param theta_0:
-#         :param beta:
-#         :param theta:
-#         :param x:
-#         :param z:
-#         :param y:
-#         :param alpha:
-#         :param lam:
-#         :return:
-#         """
-#         beta_j, theta_j = params_j[0], params_j[1:]
-#         beta[j_i] = beta_j
-#         theta[j_i, :] = theta_j
-#         return self.objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam)
-#
-#     def compute_w_j(self, x, z, j: int):
-#         """
-#         Performs the elementwise multiplication of X_j with Z
-#
-#         :param x:
-#         :param z:
-#         :param j:
-#         :return:
-#         """
-#         if self.w_j_list is None:
-#             w_j = np.zeros(z.shape)
-#             for k_i in range(z.shape[1]):
-#                 w_j[:, k_i] = x[:, j] * z[:, k_i]
-#             return w_j
-#         else:
-#             return self.w_j_list[j]
-#
-#     def derivative_wrt_beta_j(self, beta_0, theta_0, beta, theta, x, z, y, j, alpha, lam):
-#         """
-#         Full Derivative with respect to beta_j as described in the paper
-#
-#         :param beta_0:
-#         :param theta_0:
-#         :param beta:
-#         :param theta:
-#         :param x:
-#         :param z:
-#         :param y:
-#         :param j:
-#         :param alpha:
-#         :param lam:
-#         :return:
-#         """
-#         r = y - self.model(beta_0, theta_0, beta, theta, x, z)
-#         beta_j_theta_j = np.hstack((beta[j], theta[j, :]))
-#         u = 0 if all_close_to(beta_j_theta_j, 0) else beta[j] / la.norm(beta_j_theta_j, 2)
-#         return (-1 / len(r)) * x[:, j].T @ r + (1 - alpha) * lam * u
-#
-#     def derivative_wrt_theta_j(self, beta_0, theta_0, beta, theta, x, z, y, j, alpha, lam):
-#         """
-#         Full Derivative with respect to theta_j as described in the paper
-#
-#         :param beta_0:
-#         :param theta_0:
-#         :param beta:
-#         :param theta:
-#         :param x:
-#         :param z:
-#         :param y:
-#         :param j:
-#         :param alpha:
-#         :param lam:
-#         :return:
-#         """
-#         beta_j = beta[j]
-#         theta_j = theta[j, :]
-#
-#         r = y - self.model(beta_0, theta_0, beta, theta, x, z)
-#         w_j = self.compute_w_j(x, z, j)
-#
-#         beta_j_theta_j = np.hstack((beta_j, theta_j))
-#         u2 = 0 if all_close_to(beta_j_theta_j, 0) else theta_j / la.norm(beta_j_theta_j, 2)
-#
-#         u3 = 0 if all_close_to(theta_j, 0) else theta_j / la.norm(theta_j, 2)
-#
-#         v = np.sign(theta[j, :])
-#
-#         return (-1 / len(r)) * w_j.T @ r + (1 - alpha) * lam * (u2 + u3) + alpha * lam * v
+                    cond_19 = la.norm(soft_thres(w_j.T @ (r_min_j - x_j * beta_j_hat) / n, alpha * lam), 2)
+                    cond_19 = cond_19 <= (1-alpha) * lam
+
+                    if cond_19:
+                        # beta_j != 0 and theta_j == 0
+                        beta[j] = beta_j_hat
+                    else:
+                        # beta_j != 0 and theta_j != 0
+                        t, l, eps = 0.1, 1.0, 1e-5
+                        objective_prev = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
+                        for _ in range(100):  # Max steps
+                            r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
+                            beta_j_hat = beta[j]
+                            theta_j_hat = theta[j, :]
+
+                            grad_beta_j = -np.sum(x_j * r) / n
+                            grad_theta_j = -w_j.T @ r / n
+
+                            beta_j_hat, theta_j_hat = solve_abg(
+                                beta_j_hat, theta_j_hat,
+                                grad_beta_j, grad_theta_j,
+                                alpha, lam, t
+                            )
+
+                            # Update coefficients
+                            beta[j] = beta_j_hat
+                            theta[j, :] = theta_j_hat
+
+                            objective_current = objective(
+                                beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w
+                            )
+                            improvement = objective_prev - objective_current
+                            if abs(improvement) < tolerance:
+                                # Converged
+                                break
+                            else:
+                                objective_prev = objective_current
+
+            iter_current_score = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
+            if abs(iter_prev_score - iter_current_score) < tolerance:
+                break  # Converged on lam_i
+
+        # Save coefficients
+        beta_0_list.append(beta_0)
+        theta_0_list.append(theta_0.copy())
+        beta_list.append(beta.copy())
+        theta_list.append(theta.copy())
+
+    # Return results
+    return beta_0_list, theta_0_list, beta_list, theta_list

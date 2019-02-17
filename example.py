@@ -2,7 +2,7 @@ import numpy as np
 from numpy.testing import assert_almost_equal
 from scipy import stats
 from plasso import PliableLasso
-from plasso.helpers import PliableLassoModelHelper, lam_max
+from plasso.oldHelpers import PliableLassoModelHelper, lam_max
 from plasso.PliableLasso import OPTIMISE_COORDINATE, OPTIMISE_CONVEX
 from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as graph

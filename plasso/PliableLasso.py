@@ -1,10 +1,10 @@
 import warnings
+import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 
 from .helpers import *
-
 
 OPTIMISE_CONVEX = 'convex'
 OPTIMISE_COORDINATE = 'coordinate'
@@ -15,13 +15,13 @@ class PliableLasso(BaseEstimator):
     """
     Pliable Lasso https://arxiv.org/pdf/1712.00484.pdf
     """
-    def __init__(self, alpha=0.5, n_lam=50, max_iter=100, min_lam=0, fit_intercepts=False, verbose=False):
-        self.min_lam, self.alpha = min_lam, alpha
+    def __init__(self, alpha=0.5, eps=1e-2, n_lam=50, max_iter=100, min_lam=0, fit_intercepts=False, verbose=False):
+        self.min_lam, self.alpha, self.eps = min_lam, alpha, eps
         self.n_lam = n_lam
         self.max_iter = max_iter
         self.fit_intercepts = fit_intercepts
 
-        # Model coefs
+        # Model coefficients
         self.beta_0 = None
         self.theta_0 = None
         self.beta = None
@@ -29,7 +29,6 @@ class PliableLasso(BaseEstimator):
 
         # Metrics
         self.verbose = verbose
-        self.history = []
         self.paths = {}
 
     def fit(self, X, Z, y, optimizer=OPTIMISE_COORDINATE):
@@ -51,8 +50,6 @@ class PliableLasso(BaseEstimator):
         from distutils.version import LooseVersion
         if LooseVersion(cvx.__version__) < LooseVersion('1.0.11'):
             return self._fallback_to_coordinate_descent(X, Z, y)
-
-        self.history = []
 
         # Hyperparameters
         alpha = self.alpha
@@ -87,6 +84,39 @@ class PliableLasso(BaseEstimator):
 
     def _fit_coordinate_descent(self, X, Z, y):
         self._reset_paths_dict()
+
+        # Step 1: Initial Setup
+        n, p = X.shape
+        k = Z.shape[1]
+        beta_0, theta_0, beta, theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
+
+        # Solve lambda path spec
+        lambda_max, lambda_min = lam_min_max(X, y, self.alpha, 1e-2)
+        lambda_path = np.logspace(np.log10(lambda_max), np.log10(lambda_min), self.n_lam)
+        lambda_path = lambda_path[lambda_path >= self.min_lam]
+        if len(lambda_path) == 0:
+            raise ValueError(f'`min_lam` was set too high! Maximum lambda for this problem is {lambda_max}')
+        self.min_lam = max(lambda_path.min(), self.min_lam)
+
+        # Step 2: Update coefficients with coordinate descent
+        result = coordinate_descent(
+            X, Z, y,
+            beta_0, theta_0, beta, theta,
+            self.alpha, lambda_path,
+            self.max_iter
+        )
+
+        # Step 3: Save results
+        var_names = ['beta_0', 'theta_0', 'beta', 'theta']
+        self.paths = {var_name: var_list for var_name, var_list in zip(var_names, result)}
+        for var in var_names[1:]:
+            self.paths[var] = np.stack(self.paths[var])
+        self.paths['lam'] = lambda_path
+
+        return self
+
+    def _fit_coordinate_descent_old(self, X, Z, y):
+        self._reset_paths_dict()
         n, p = X.shape
         k = Z.shape[1]
 
@@ -94,9 +124,8 @@ class PliableLasso(BaseEstimator):
         alpha = self.alpha  # So I don't have to keep writing self
         beta_0, theta_0, beta, theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
 
-        # Same lambda path specs as GLMnet (Apparently faster than solving for a single lambda
-        lambda_max = lam_max(X, y, alpha)
-        lambda_min = 1e-3 * lambda_max
+        # Same lambda path specs as GLMnet (Apparently faster than solving for a single lambda)
+        lambda_max, lambda_min = lam_min_max(X, y, alpha, 1e-2)
         lambda_path = np.logspace(np.log10(lambda_max), np.log10(lambda_min), self.n_lam)
         lambda_path = lambda_path[lambda_path >= self.min_lam]
         if len(lambda_path) == 0:
