@@ -32,6 +32,9 @@ class PliableLasso(BaseEstimator):
         self.paths = {}
 
     def fit(self, X, Z, y, optimizer=OPTIMISE_COORDINATE):
+        # Convert all types to floats before proceeding
+        X, Z, y = X.astype(float), Z.astype(float), y.astype(float)
+
         if optimizer == OPTIMISE_CONVEX:
             return self._fit_convex_optimization(X, Z, y)
         elif optimizer == OPTIMISE_COORDINATE:

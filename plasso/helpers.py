@@ -7,7 +7,7 @@ from functools import partial
 njit = partial(njit, cache=True)
 
 
-def lam_min_max(x, y, alpha, eps):
+def lam_min_max(x, y, alpha, eps=1e-2):
     """
     Approximate the minimum and maximum values for the lambda
 
@@ -120,13 +120,13 @@ def compute_pliable(x, z, theta, precomputed_w):
     n, p = x.shape
     pliable = np.zeros(n)
     for j in range(p):
-        w_j = precomputed_w[j]
+        w_j = compute_w_j(x, z, j) if precomputed_w is None else precomputed_w[j]
         pliable += w_j @ theta[j, :]
     return pliable
 
 
 @njit()
-def model(beta_0, theta_0, beta, theta, x, z, precomputed_w):
+def model(beta_0, theta_0, beta, theta, x, z, precomputed_w=None):
     """
     The pliable lasso model described in the paper
     y ~ f(x)
@@ -135,7 +135,7 @@ def model(beta_0, theta_0, beta, theta, x, z, precomputed_w):
 
     y ~ b_0 + Z theta_0 + X b + \sum( w_j theta_ji )
 
-    :param precomputed_w:
+    :param precomputed_w: if None then it computes Wj as needed
     :param beta_0:
     :param theta_0:
     :param beta:
@@ -162,7 +162,7 @@ def partial_model(beta_0, theta_0, beta, theta, x, z, j, precomputed_w):
     :param theta:
     :param x:
     :param z:
-    :param ignore_j:
+    :param j: The jth predictor to ignore.
     :return:
     """
     beta[j] = 0.0
@@ -171,11 +171,11 @@ def partial_model(beta_0, theta_0, beta, theta, x, z, j, precomputed_w):
 
 
 @njit()
-def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w):
+def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w=None):
     """
     Full objective function J(beta, theta) described in the paper
 
-    :param precomputed_w:
+    :param precomputed_w: if None then it computes Wj as needed
     :param beta_0:
     :param theta_0:
     :param beta:
