@@ -34,3 +34,5 @@ if __name__ == '__main__':
     model.plot_interaction_paths()
     graph.show()
 
+    print('--- Done ---')
+

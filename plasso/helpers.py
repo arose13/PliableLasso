@@ -10,8 +10,8 @@ def placebo():
     return wrapper
 
 
-# njit = partial(njit, cache=True)
-njit = placebo
+njit = partial(njit, cache=True)
+# njit = placebo
 
 
 def lam_min_max(x, y, alpha, eps=1e-2):
@@ -32,6 +32,13 @@ def lam_min_max(x, y, alpha, eps=1e-2):
     lam_max = np.abs(dots).max() / (n*alpha)
     lam_min = eps * lam_max
     return lam_max, lam_min
+
+
+@njit()
+def concat_beta_theta(beta, theta):
+    matrix = np.zeros((beta.shape[0], theta.shape[1]))
+    matrix[:, :-1] = theta
+    matrix[:, -1] = beta
 
 
 @njit()
@@ -127,8 +134,9 @@ def compute_pliable(x, z, theta, precomputed_w):
     n, p = x.shape
     pliable = np.zeros(n)
     for j in range(p):
-        w_j = compute_w_j(x, z, j) if precomputed_w is None else precomputed_w[j]
-        pliable += w_j @ theta[j, :]
+        if np.any(theta[j, :]):
+            w_j = compute_w_j(x, z, j) if precomputed_w is None else precomputed_w[j]
+            pliable += w_j @ theta[j, :]
     return pliable
 
 
@@ -199,6 +207,7 @@ def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w=N
 
     mse = (1 / (2 * n)) * la.norm(y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w), 2) ** 2
 
+    # TODO (2/19/2019) replace with concat_beta_theta() function
     coef_matrix = np.zeros((p, k+1))
     coef_matrix[:, :-1] = theta
     coef_matrix[:, -1] = beta
@@ -209,6 +218,58 @@ def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w=N
         penalty_1 += la.norm(coef_matrix[j, :], 2)
         penalty_2 += la.norm(theta[j, :], 2)
     penalty_3 = np.abs(theta).sum()
+
+    cost = mse + (1-alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
+    return cost
+
+
+@njit()
+def penalties_min_j(beta_0, theta_0, beta, theta, x, z, y, precomputed_w, ignore_j):
+    # Compute the MSE, penalty 1 and penalty 2 when the jth predictor is not in the model.
+    n, p = x.shape
+    k = z.shape[1]
+
+    mse = (1 / (2*n)) * la.norm(y - partial_model(beta_0, theta_0, beta, theta, x, z, ignore_j, precomputed_w), 2)**2
+
+    coef_matrix = np.zeros((p, k + 1))
+    coef_matrix[:, :-1] = theta
+    coef_matrix[:, -1] = beta
+
+    # Ignore the jth modifier from the model
+    coef_matrix[ignore_j, :] = 0.0
+    theta[ignore_j, :] = 0.0
+
+    # Compute penalties
+    penalty_1, penalty_2 = 0.0, 0.0
+    for j in range(p):
+        penalty_1 += la.norm(coef_matrix[j, :], 2)
+        penalty_2 += la.norm(theta[j, :], 2)
+    penalty_3 = np.abs(theta).sum()
+
+    return mse, penalty_1, penalty_2, penalty_3
+
+
+@njit()
+def partial_objective(beta_j, theta_j, x, r_min_j, precomputed_w, j, alpha, lam, mse, penalty_1, penalty_2, penalty_3):
+    # This only computes the objective for the jth modifier variables
+    n, p = x.shape
+    k = theta_j.shape[0]
+
+    # Compute only the residual fit of the model since everything else is the same
+    r_hat = beta_j * x[:, j] + precomputed_w[j] @ theta_j
+    mse += (1 / (2*n)) * la.norm(r_min_j - r_hat, 2)**2
+
+    # Penalty 1
+    coef_vector = np.zeros(k+1)
+    coef_vector[:-1] = theta_j
+    coef_vector[-1] = beta_j
+    penalty_1 += la.norm(coef_vector, 2)
+
+    # Penalty 2
+    penalty_2 += la.norm(theta_j, 2)
+
+    # Penalty 3
+    penalty_3 += np.abs(theta_j).sum()
 
     cost = mse + (1-alpha) * lam * (penalty_1 + penalty_2) + alpha * lam * penalty_3
     return cost
@@ -255,7 +316,18 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
                     else:
                         # beta_j != 0 and theta_j != 0
                         t, l, eps = 0.1, 1.0, 1e-5
-                        objective_prev = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
+                        # TODO (2/19/2019) replace objectives here with partial_objective logic so save computation
+                        precomputed_penalties_minus_j = penalties_min_j(
+                            beta_0, theta_0, beta, theta, x, z, y, precomputed_w, j
+                        )
+                        pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3 = precomputed_penalties_minus_j
+                        objective_prev = partial_objective(
+                            beta[j], theta[j, :],
+                            x, r_min_j, precomputed_w, j,
+                            alpha, lam,
+                            pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3
+                        )
+                        # objective_prev = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
                         for _ in range(100):  # Max steps
                             r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
                             beta_j_hat = beta[j]
@@ -274,9 +346,16 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
                             beta[j] = beta_j_hat
                             theta[j, :] = theta_j_hat
 
-                            objective_current = objective(
-                                beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w
+                            # TODO (2/19/2019) replace objectives here with partial_objective logic so save computation
+                            objective_current = partial_objective(
+                                beta[j], theta[j],
+                                x, r_min_j, precomputed_w, j,
+                                alpha, lam,
+                                pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3
                             )
+                            # objective_current = objective(
+                            #     beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w
+                            # )
                             improvement = objective_prev - objective_current
                             if abs(improvement) < tolerance:
                                 # Converged
