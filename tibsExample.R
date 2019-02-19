@@ -1,5 +1,7 @@
-# Title     : TODO
-# Objective : TODO
+# Setup
+# ~ wget http://statweb.stanford.edu/~tibs/pliable/plasso_0.1.tar.gz
+# Now in R run...
+# install.packages('plasso_0.1.tar.gz', repos=NULL, type='source')
 # Created by: anthony
 # Created on: 2/19/19
 library(plasso)
