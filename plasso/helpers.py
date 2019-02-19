@@ -4,7 +4,14 @@ from numba import njit
 from functools import partial
 
 
-njit = partial(njit, cache=True)
+def placebo():
+    def wrapper(func):
+        return func
+    return wrapper
+
+
+# njit = partial(njit, cache=True)
+njit = placebo
 
 
 def lam_min_max(x, y, alpha, eps=1e-2):
