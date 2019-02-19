@@ -223,7 +223,7 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
             iter_prev_score = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
 
             # Iterate through all p features
-            tolerance = 1e-3
+            tolerance = 1e-6
             for j in range(p):
                 x_j = x[:, j]
                 r_min_j = y - partial_model(beta_0, theta_0, beta, theta, x, z, j, precomputed_w)
