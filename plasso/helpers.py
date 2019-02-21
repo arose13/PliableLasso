@@ -48,7 +48,7 @@ def soft_thres(x, thres):
 
 @njit()
 def quad_solution(u, v, w):
-    temp = np.sqrt((v**2) - (4*u*w))
+    temp = ((v**2) - (4*u*w))**0.5
     root1 = (-v + temp) / (2*u)
     root2 = (-v - temp) / (2*u)
     return root1, root2
@@ -79,7 +79,7 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
     c = t * (1 - alpha) * lam
 
     scrat = soft_thres(theta_j - t * grad_theta, g2_thres)
-    g2 = np.sqrt(scrat @ scrat)  # Is this fast than an l2 norm?
+    g2 = np.sqrt(scrat @ scrat)  # Confirmed that this is a faster l2 norm than la.norm(x, 2)
 
     root1, root2 = quad_solution(1, 2 * c, 2 * c * g2 - g1 ** 2 - g2 ** 2)
 
@@ -100,12 +100,12 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
     j_hat, k_hat = 0, 0
     for j in range(4):
         for k in range(4):
-            denominator = np.sqrt(a[j] ** 2 + b[k] ** 2)
+            denominator = (a[j] ** 2 + b[k] ** 2) ** 0.5  # l2 norm
             if denominator > 0:
                 val1 = (1 + (c / denominator)) * a[j] - g1
                 val2 = (1 + c * (1 / b[k] + 1 / denominator)) * b[k] - g2
 
-                temp = np.abs(val1) + np.abs(val2)
+                temp = abs(val1) + abs(val2)  # l1 norm
                 if temp < x_min:
                     j_hat, k_hat = j, k
                     x_min = temp
@@ -166,7 +166,7 @@ def model(beta_0, theta_0, beta, theta, x, z, precomputed_w=None):
 
 
 @njit()
-def partial_model(beta_0, theta_0, beta, theta, x, z, j, precomputed_w):
+def model_min_j(beta_0, theta_0, beta, theta, x, z, j, precomputed_w):
     """
     y ~ f(x) with X_j removed from the model
 
@@ -183,6 +183,16 @@ def partial_model(beta_0, theta_0, beta, theta, x, z, j, precomputed_w):
     beta[j] = 0.0
     theta[j, :] = 0.0
     return model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
+
+
+@njit()
+def model_j(beta_j, theta_j, x, precomputed_w, j):
+    """
+    r_j ~ beta_j * X_j + W_j @ theta_j
+
+    Only a the residual fit on a single predictor is made
+    """
+    return beta_j * x[:, j] + precomputed_w[j] @ theta_j
 
 
 @njit()
@@ -229,7 +239,7 @@ def penalties_min_j(beta_0, theta_0, beta, theta, x, z, y, precomputed_w, ignore
     n, p = x.shape
     k = z.shape[1]
 
-    mse = (1 / (2*n)) * la.norm(y - partial_model(beta_0, theta_0, beta, theta, x, z, ignore_j, precomputed_w), 2)**2
+    mse = (1 / (2*n)) * la.norm(y - model_min_j(beta_0, theta_0, beta, theta, x, z, ignore_j, precomputed_w), 2) ** 2
 
     coef_matrix = np.zeros((p, k + 1))
     coef_matrix[:, :-1] = theta
@@ -256,7 +266,7 @@ def partial_objective(beta_j, theta_j, x, r_min_j, precomputed_w, j, alpha, lam,
     k = theta_j.shape[0]
 
     # Compute only the residual fit of the model since everything else is the same
-    r_hat = beta_j * x[:, j] + precomputed_w[j] @ theta_j
+    r_hat = model_j(beta_j, theta_j, x, precomputed_w, j)
     mse += (1 / (2*n)) * la.norm(r_min_j - r_hat, 2)**2
 
     # Penalty 1
@@ -294,7 +304,7 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
             tolerance = 1e-6
             for j in range(p):
                 x_j = x[:, j]
-                r_min_j = y - partial_model(beta_0, theta_0, beta, theta, x, z, j, precomputed_w)
+                r_min_j = y - model_min_j(beta_0, theta_0, beta, theta, x, z, j, precomputed_w)
                 w_j = precomputed_w[j]
 
                 # Check if beta_j == 0 and theta_j == 0
@@ -327,11 +337,11 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
                             alpha, lam,
                             pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3
                         )
-                        # objective_prev = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
                         for _ in range(100):  # Max steps
-                            r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
+                            # r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
                             beta_j_hat = beta[j]
                             theta_j_hat = theta[j, :]
+                            r = r_min_j - model_j(beta_j_hat, theta_j_hat, x, precomputed_w, j)
 
                             grad_beta_j = -np.sum(x_j * r) / n
                             grad_theta_j = -w_j.T @ r / n
@@ -353,9 +363,6 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
                                 alpha, lam,
                                 pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3
                             )
-                            # objective_current = objective(
-                            #     beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w
-                            # )
                             improvement = objective_prev - objective_current
                             if abs(improvement) < tolerance:
                                 # Converged

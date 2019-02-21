@@ -116,6 +116,13 @@ class PliableLasso(BaseEstimator):
             self.paths[var] = np.stack(self.paths[var])
         self.paths['lam'] = lambda_path
 
+        # Step 4: Select best coefficients
+        # TODO (2/21/2019) replace with WAY better logic
+        self.beta_0 = self.paths['beta_0'][-1]
+        self.theta_0 = self.paths['theta_0'][-1]
+        self.beta = self.paths['beta'][-1]
+        self.theta = self.paths['theta'][-1]
+
         return self
 
     def _fallback_to_coordinate_descent(self, X, Z, y):
