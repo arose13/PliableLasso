@@ -2,6 +2,8 @@ import numpy as np
 import numpy.linalg as la
 from numba import njit
 from functools import partial
+# TODO (2/21/2019) - to allow prediction after the model is trained
+# TODO (2/21/2019) - Automatically terminate training if interaction condition is met
 
 
 def placebo():
@@ -326,7 +328,6 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
                     else:
                         # beta_j != 0 and theta_j != 0
                         t, l, eps = 0.1, 1.0, 1e-5
-                        # TODO (2/19/2019) replace objectives here with partial_objective logic so save computation
                         precomputed_penalties_minus_j = penalties_min_j(
                             beta_0, theta_0, beta, theta, x, z, y, precomputed_w, j
                         )
@@ -356,7 +357,6 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
                             beta[j] = beta_j_hat
                             theta[j, :] = theta_j_hat
 
-                            # TODO (2/19/2019) replace objectives here with partial_objective logic so save computation
                             objective_current = partial_objective(
                                 beta[j], theta[j],
                                 x, r_min_j, precomputed_w, j,
