@@ -380,8 +380,8 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
                 break  # Converged on lam_i
 
         # Check maximum interaction terms reached. If so early stop just like Tibs.
-        # if theta[theta != 0].size > max_interaction_terms:
-        #     break
+        if len(np.nonzero(theta)[0]) > max_interaction_terms:
+            break
 
         # Save coefficients
         lam_list.append(lam)
