@@ -1,3 +1,4 @@
+import numpy as np
 from time import time
 from scipy import stats
 from plasso import PliableLasso
@@ -6,6 +7,7 @@ import matplotlib.pyplot as graph
 
 if __name__ == '__main__':
     # Setup
+    np.random.seed(1992)
     n = 200
     p = 10
     k = 5
@@ -17,9 +19,10 @@ if __name__ == '__main__':
     y += 3*stats.norm().rvs(n)
 
     # Fit model
+    model = PliableLasso()
+
     print('=== Fitting Model ===')
     start_time = time()
-    model = PliableLasso()
     model.fit(x, z, y)
     stop_time = time()
     print(f'Runtime : {stop_time - start_time:.5f} sec')
@@ -30,4 +33,6 @@ if __name__ == '__main__':
 
     model.plot_interaction_paths()
     graph.show()
+
+    print('--- Done ---')
 
