@@ -2,8 +2,6 @@ import numpy as np
 import numpy.linalg as la
 from numba import njit
 from functools import partial
-# TODO (2/21/2019) - to allow prediction after the model is trained
-# TODO (2/21/2019) - Automatically terminate training if interaction condition is met
 
 
 def placebo():
@@ -41,6 +39,16 @@ def concat_beta_theta(beta, theta):
     matrix = np.zeros((beta.shape[0], theta.shape[1]))
     matrix[:, :-1] = theta
     matrix[:, -1] = beta
+    return matrix
+
+
+@njit()
+def count_nonzero(x):
+    n = 0
+    for x_i in x:
+        if x_i != 0:
+            n += 1
+    return n
 
 
 @njit()
@@ -224,10 +232,7 @@ def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w):
 
     mse = (1 / (2 * n)) * la.norm(y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w), 2) ** 2
 
-    # TODO (2/19/2019) replace with concat_beta_theta() function
-    coef_matrix = np.zeros((p, k+1))
-    coef_matrix[:, :-1] = theta
-    coef_matrix[:, -1] = beta
+    coef_matrix = concat_beta_theta(beta, theta)
 
     # Numba does not support the axis kwarg on la.norm() [axis 1 means operates across rows]
     penalty_1, penalty_2 = 0.0, 0.0
@@ -248,9 +253,7 @@ def penalties_min_j(beta_0, theta_0, beta, theta, x, z, y, precomputed_w, ignore
 
     mse = (1 / (2*n)) * la.norm(y - model_min_j(beta_0, theta_0, beta, theta, x, z, ignore_j, precomputed_w), 2) ** 2
 
-    coef_matrix = np.zeros((p, k + 1))
-    coef_matrix[:, :-1] = theta
-    coef_matrix[:, -1] = beta
+    coef_matrix = concat_beta_theta(beta, theta)
 
     # Ignore the jth modifier from the model
     coef_matrix[ignore_j, :] = 0.0
@@ -380,7 +383,9 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
                 break  # Converged on lam_i
 
         # Check maximum interaction terms reached. If so early stop just like Tibs.
-        if len(np.nonzero(theta)[0]) > max_interaction_terms:
+        n_interaction_terms = count_nonzero(theta.flatten())
+        if n_interaction_terms > max_interaction_terms:
+            print('Maximum Interaction Terms reached.')
             break
 
         # Save coefficients
