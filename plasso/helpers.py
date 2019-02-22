@@ -132,18 +132,23 @@ def compute_w_j(x, z, j):
 
 
 @njit()
-def compute_pliable(x, z, theta, precomputed_w):
+def compute_w(x, z):
+    return [compute_w_j(x, z, j) for j in range(x.shape[1])]
+
+
+@njit()
+def compute_pliable(x, theta, precomputed_w):
     n, p = x.shape
     pliable = np.zeros(n)
     for j in range(p):
         if np.any(theta[j, :]):
-            w_j = compute_w_j(x, z, j) if precomputed_w is None else precomputed_w[j]
+            w_j = precomputed_w[j]
             pliable += w_j @ theta[j, :]
     return pliable
 
 
 @njit()
-def model(beta_0, theta_0, beta, theta, x, z, precomputed_w=None):
+def model(beta_0, theta_0, beta, theta, x, z, precomputed_w):
     """
     The pliable lasso model described in the paper
     y ~ f(x)
@@ -152,7 +157,7 @@ def model(beta_0, theta_0, beta, theta, x, z, precomputed_w=None):
 
     y ~ b_0 + Z theta_0 + X b + \sum( w_j theta_ji )
 
-    :param precomputed_w: if None then it computes Wj as needed
+    :param precomputed_w: List of all precomputed Wj
     :param beta_0:
     :param theta_0:
     :param beta:
@@ -163,7 +168,7 @@ def model(beta_0, theta_0, beta, theta, x, z, precomputed_w=None):
     """
     intercepts = beta_0 + (z @ theta_0)
     shared_model = x @ beta
-    pliable = compute_pliable(x, z, theta, precomputed_w)
+    pliable = compute_pliable(x, theta, precomputed_w)
     return intercepts + shared_model + pliable
 
 
@@ -198,11 +203,11 @@ def model_j(beta_j, theta_j, x, precomputed_w, j):
 
 
 @njit()
-def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w=None):
+def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w):
     """
     Full objective function J(beta, theta) described in the paper
 
-    :param precomputed_w: if None then it computes Wj as needed
+    :param precomputed_w: List of all precomputed Wj
     :param beta_0:
     :param theta_0:
     :param beta:
@@ -290,7 +295,7 @@ def partial_objective(beta_j, theta_j, x, r_min_j, precomputed_w, j, alpha, lam,
 @njit()
 def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, max_iter, max_interaction_terms):
     n, p = x.shape
-    precomputed_w = [compute_w_j(x, z, j) for j in range(p)]
+    precomputed_w = compute_w(x, z)
 
     # Lists
     lam_list = []

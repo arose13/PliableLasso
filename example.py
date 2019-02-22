@@ -3,7 +3,7 @@ from time import time
 from numpy.testing import assert_almost_equal
 from scipy import stats
 from plasso import PliableLasso
-from plasso.helpers import model, lam_min_max, objective
+from plasso.helpers import model, lam_min_max, objective, compute_w
 from plasso.PliableLasso import OPTIMISE_COORDINATE, OPTIMISE_CONVEX
 from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as graph
@@ -38,11 +38,11 @@ if __name__ == '__main__':
     y = x @ beta
     print(y.shape)
 
-    # y_hat = model(beta_0, theta_0, beta, np.zeros((p, k)).astype(float), x, z)
-    # assert_almost_equal(y_hat, y)
-    # print('Model does reduce to Lasso')
-    # print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
-    # print()
+    y_hat = model(beta_0, theta_0, beta, np.zeros((p, k)).astype(float), x, z, compute_w(x, z))
+    assert_almost_equal(y_hat, y)
+    print('Model does reduce to Lasso')
+    print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
+    print()
 
     # Pliable Lasso Test
     y = x[:, 0] * beta[0]
@@ -51,11 +51,11 @@ if __name__ == '__main__':
     y += x[:, 3] * (beta[3] - 2*z[:, 1])
     print(y.shape)
 
-    # y_hat = model(beta_0, theta_0, beta, theta, x, z)
-    # assert_almost_equal(y_hat, y)
-    # print('Model correctly computes Pliables')
-    # print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
-    # print()
+    y_hat = model(beta_0, theta_0, beta, theta, x, z, compute_w(x, z))
+    assert_almost_equal(y_hat, y)
+    print('Model correctly computes Pliables')
+    print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
+    print()
 
     y_gt = y.copy()
     y += 0.5 * stats.norm().rvs(n)  # Add noise from paper
@@ -86,7 +86,7 @@ if __name__ == '__main__':
 
     print('--- Best Possible ---')
     print(f'R2 = {r2_score(y, y_gt):0.2%}, MSE = {mean_squared_error(y, y_gt):0.5f}')
-    print(f'J = {objective(beta_0, theta_0, beta, theta, x, z, y, alpha=plasso.alpha, lam=plasso.min_lam):0.5f}')
+    print(f'J = {objective(beta_0, theta_0, beta, theta, x, z, y, plasso.alpha, plasso.min_lam, compute_w(x, z)):0.5f}')
 
     print('--- Obtained ---')
     print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
@@ -119,7 +119,7 @@ if __name__ == '__main__':
 
     print('--- Best Possible ---')
     print(f'R2 = {r2_score(y, y_gt):0.2%}, MSE = {mean_squared_error(y, y_gt):0.5f}')
-    print(f'J = {objective(beta_0, theta_0, beta, theta, x, z, y, alpha=plasso.alpha, lam=plasso.min_lam):0.5f}')
+    print(f'J = {objective(beta_0, theta_0, beta, theta, x, z, y, plasso.alpha, plasso.min_lam, compute_w(x, z)):0.5f}')
 
     print('--- Obtained ---')
     print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')

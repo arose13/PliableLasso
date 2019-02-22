@@ -1,5 +1,4 @@
 import warnings
-import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
@@ -145,15 +144,15 @@ class PliableLasso(BaseEstimator):
         if isinstance(Z, pd.Series) or isinstance(Z, pd.DataFrame):
             Z = Z.values
 
-        return model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z)
+        return model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, precomputed_w=compute_w(X, Z))
 
     def score(self, X, Z, y):
         from sklearn.metrics import r2_score
-        return r2_score(y, model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z))
+        return r2_score(y, model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, compute_w(X, Z)))
 
     def cost(self, X, Z, y):
         return objective(
-            self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, self.alpha, self.min_lam
+            self.beta_0, self.theta_0, self.beta, self.theta, X, Z, y, self.alpha, self.min_lam, compute_w(X, Z)
         )
 
     def plot_coef_paths(self):
