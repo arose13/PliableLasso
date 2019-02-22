@@ -15,10 +15,12 @@ class PliableLasso(BaseEstimator):
     """
     Pliable Lasso https://arxiv.org/pdf/1712.00484.pdf
     """
-    def __init__(self, alpha=0.5, eps=1e-2, n_lam=50, max_iter=100, min_lam=0, fit_intercepts=False, verbose=False):
+    def __init__(self, alpha=0.5, eps=1e-2, n_lam=50, min_lam=0,
+                 max_interaction_terms=500, max_iter=100, fit_intercepts=False,
+                 verbose=False):
         self.min_lam, self.alpha, self.eps = min_lam, alpha, eps
         self.n_lam = n_lam
-        self.max_iter = max_iter
+        self.max_iter, self.max_interaction_terms = max_iter, max_interaction_terms
         self.fit_intercepts = fit_intercepts
 
         # Model coefficients
@@ -106,15 +108,14 @@ class PliableLasso(BaseEstimator):
             X, Z, y,
             beta_0, theta_0, beta, theta,
             self.alpha, lambda_path,
-            self.max_iter
+            self.max_iter, self.max_interaction_terms
         )
 
         # Step 3: Save results
-        var_names = ['beta_0', 'theta_0', 'beta', 'theta']
+        var_names = ['lam', 'beta_0', 'theta_0', 'beta', 'theta']
         self.paths = {var_name: var_list for var_name, var_list in zip(var_names, result)}
-        for var in var_names[1:]:
+        for var in var_names[2:]:
             self.paths[var] = np.stack(self.paths[var])
-        self.paths['lam'] = lambda_path
 
         # Step 4: Select best coefficients
         # TODO (2/21/2019) replace with WAY better logic

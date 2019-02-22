@@ -288,22 +288,23 @@ def partial_objective(beta_j, theta_j, x, r_min_j, precomputed_w, j, alpha, lam,
 
 
 @njit()
-def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, max_iter):
+def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, max_iter, max_interaction_terms):
     n, p = x.shape
     precomputed_w = [compute_w_j(x, z, j) for j in range(p)]
 
     # Lists
+    lam_list = []
     beta_0_list = []
     theta_0_list = []
     beta_list = []
     theta_list = []
 
+    tolerance = 1e-6
     for nth_lam, lam in enumerate(lam_path):
         for i in range(max_iter):
             iter_prev_score = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
 
             # Iterate through all p features
-            tolerance = 1e-6
             for j in range(p):
                 x_j = x[:, j]
                 r_min_j = y - model_min_j(beta_0, theta_0, beta, theta, x, z, j, precomputed_w)
@@ -339,7 +340,6 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
                             pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3
                         )
                         for _ in range(100):  # Max steps
-                            # r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
                             beta_j_hat = beta[j]
                             theta_j_hat = theta[j, :]
                             r = r_min_j - model_j(beta_j_hat, theta_j_hat, x, precomputed_w, j)
@@ -374,11 +374,16 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
             if abs(iter_prev_score - iter_current_score) < tolerance:
                 break  # Converged on lam_i
 
+        # Check maximum interaction terms reached. If so early stop just like Tibs.
+        # if theta[theta != 0].size > max_interaction_terms:
+        #     break
+
         # Save coefficients
+        lam_list.append(lam)
         beta_0_list.append(beta_0)
         theta_0_list.append(theta_0.copy())
         beta_list.append(beta.copy())
         theta_list.append(theta.copy())
 
     # Return results
-    return beta_0_list, theta_0_list, beta_list, theta_list
+    return lam_list, beta_0_list, theta_0_list, beta_list, theta_list
