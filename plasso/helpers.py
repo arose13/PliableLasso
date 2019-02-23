@@ -36,7 +36,8 @@ def lam_min_max(x, y, alpha, eps=1e-2):
 
 @njit()
 def concat_beta_theta(beta, theta):
-    matrix = np.zeros((beta.shape[0], theta.shape[1]))
+    p, k = beta.shape[0], theta.shape[1]
+    matrix = np.zeros((p, k+1))
     matrix[:, :-1] = theta
     matrix[:, -1] = beta
     return matrix
@@ -296,7 +297,13 @@ def partial_objective(beta_j, theta_j, x, r_min_j, precomputed_w, j, alpha, lam,
 
 
 @njit()
-def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, max_iter, max_interaction_terms):
+def coordinate_descent(
+        x, z, y,
+        beta_0, theta_0, beta, theta,
+        alpha, lam_path,
+        max_iter, max_interaction_terms,
+        verbose
+):
     n, p = x.shape
     precomputed_w = compute_w(x, z)
 
@@ -384,6 +391,8 @@ def coordinate_descent(x, z, y, beta_0, theta_0, beta, theta, alpha, lam_path, m
 
         # Check maximum interaction terms reached. If so early stop just like Tibs.
         n_interaction_terms = count_nonzero(theta.flatten())
+        if verbose:
+            print(n_interaction_terms)
         if n_interaction_terms > max_interaction_terms:
             print('Maximum Interaction Terms reached.')
             break

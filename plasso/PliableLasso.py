@@ -107,7 +107,8 @@ class PliableLasso(BaseEstimator):
             X, Z, y,
             beta_0, theta_0, beta, theta,
             self.alpha, lambda_path,
-            self.max_iter, self.max_interaction_terms
+            self.max_iter, self.max_interaction_terms,
+            self.verbose
         )
 
         # Step 3: Save results
