@@ -10,8 +10,8 @@ def placebo():
     return wrapper
 
 
-njit = partial(njit, cache=True)
-# njit = placebo
+# njit = partial(njit, cache=True)
+njit = placebo
 
 
 def lam_min_max(x, y, alpha, eps=1e-2):
@@ -66,6 +66,7 @@ def quad_solution(u, v, w):
 
 
 @njit()
+@profile
 def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
     """
     Solves a and b so gradient iterations of theta are not needed. Equation (22)
@@ -297,6 +298,7 @@ def partial_objective(beta_j, theta_j, x, r_min_j, precomputed_w, j, alpha, lam,
 
 
 @njit()
+@profile
 def coordinate_descent(
         x, z, y,
         beta_0, theta_0, beta, theta,
@@ -305,7 +307,16 @@ def coordinate_descent(
         verbose
 ):
     n, p = x.shape
+    k = z.shape[1]
+
+    # Precomputed variables
     precomputed_w = compute_w(x, z)
+    w = np.ones((n, k + 1))  # W = Z + 1s
+    w[:, :-1] = z
+    inv_w_w = la.inv(w.T @ w)
+
+    # Current residual
+    r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
 
     # Lists
     lam_list = []
@@ -318,6 +329,12 @@ def coordinate_descent(
     for nth_lam, lam in enumerate(lam_path):
         for i in range(max_iter):
             iter_prev_score = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
+
+            # Compute beta_0 and theta_0 from the least square regression of the current residual on Z
+            # Z + 1s = W matrix where Z is for theta_0 and 1s is for beta_0
+            b = inv_w_w @ (w.T @ r)  # Analytic solution means there's a lower bound on N given k
+            theta_0 = b[:-1]
+            beta_0 = b[-1]
 
             # Iterate through all p features
             for j in range(p):
@@ -341,6 +358,7 @@ def coordinate_descent(
                     if cond_19:
                         # beta_j != 0 and theta_j == 0
                         beta[j] = beta_j_hat
+                        r = r_min_j - model_j(beta[j], theta[j, :], x, precomputed_w, j)
                     else:
                         # beta_j != 0 and theta_j != 0
                         t, l, eps = 0.1, 1.0, 1e-5
@@ -357,7 +375,7 @@ def coordinate_descent(
                         for _ in range(100):  # Max steps
                             beta_j_hat = beta[j]
                             theta_j_hat = theta[j, :]
-                            r = r_min_j - model_j(beta_j_hat, theta_j_hat, x, precomputed_w, j)
+                            r = r_min_j - model_j(beta[j], theta[j, :], x, precomputed_w, j)
 
                             grad_beta_j = -np.sum(x_j * r) / n
                             grad_theta_j = -w_j.T @ r / n

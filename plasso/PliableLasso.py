@@ -159,9 +159,16 @@ class PliableLasso(BaseEstimator):
     def plot_coef_paths(self):
         import matplotlib.pyplot as graph
 
-        # Plot coefficient paths
-        graph.plot(self.paths['lam'], self.paths['beta'])
+        graph.plot(self.paths['lam'], self.paths['beta'], linewidth=1)
         graph.ylabel(r'$\beta$')
+        graph.xlabel(r'$\lambda$')
+        graph.xscale('log')
+
+    def plot_intercepts_path(self):
+        import matplotlib.pyplot as graph
+
+        graph.plot(self.paths['lam'], self.paths['beta_0'], color='black', linewidth=2, label=r'$\beta_0$')
+        graph.plot(self.paths['lam'], self.paths['theta_0'], label=r'$\theta_0$')
         graph.xlabel(r'$\lambda$')
         graph.xscale('log')
 
@@ -173,7 +180,8 @@ class PliableLasso(BaseEstimator):
         p = p.shape[1]
 
         for j in range(p):
-            graph.plot(self.paths['lam'], self.paths['theta'][:, j, :])
+            graph.plot(self.paths['lam'], self.paths['theta'][:, j, :], linewidth=1)
+
         graph.ylabel(r'$\theta$')
         graph.xlabel(r'$\lambda$')
         graph.xscale('log')

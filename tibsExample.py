@@ -34,5 +34,8 @@ if __name__ == '__main__':
     model.plot_interaction_paths()
     graph.show()
 
+    model.plot_intercepts_path()
+    graph.show()
+
     print('--- Done ---')
 
