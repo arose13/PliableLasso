@@ -10,8 +10,8 @@ def placebo():
     return wrapper
 
 
-# njit = partial(njit, cache=True)
-njit = placebo
+njit = partial(njit, cache=True)
+# njit = placebo
 
 
 def lam_min_max(x, y, alpha, eps=1e-2):
@@ -66,7 +66,6 @@ def quad_solution(u, v, w):
 
 
 @njit()
-@profile
 def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
     """
     Solves a and b so gradient iterations of theta are not needed. Equation (22)
@@ -83,7 +82,7 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
     :return:
     """
     # Convergence hyperparameters
-    big, eps = 10e9, 1e-3
+    big, eps = 10e9, 1e-5
 
     g1 = np.abs(beta_j - t * grad_beta)
 
@@ -298,12 +297,11 @@ def partial_objective(beta_j, theta_j, x, r_min_j, precomputed_w, j, alpha, lam,
 
 
 @njit()
-@profile
 def coordinate_descent(
         x, z, y,
         beta_0, theta_0, beta, theta,
         alpha, lam_path,
-        max_iter, max_interaction_terms,
+        max_iter, max_interaction_terms, fit_intercepts,
         verbose
 ):
     n, p = x.shape
@@ -315,8 +313,10 @@ def coordinate_descent(
     w[:, :-1] = z
     inv_w_w = la.inv(w.T @ w)
 
-    # Current residual
-    r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
+    # Solve ABG Parameters
+    t = 0.1 / (x**2).mean()
+    if verbose:
+        print('tt =', t)
 
     # Lists
     lam_list = []
@@ -325,16 +325,18 @@ def coordinate_descent(
     beta_list = []
     theta_list = []
 
-    tolerance = 1e-6
+    tolerance = 1e-5
     for nth_lam, lam in enumerate(lam_path):
         for i in range(max_iter):
             iter_prev_score = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
 
             # Compute beta_0 and theta_0 from the least square regression of the current residual on Z
             # Z + 1s = W matrix where Z is for theta_0 and 1s is for beta_0
-            b = inv_w_w @ (w.T @ r)  # Analytic solution means there's a lower bound on N given k
-            theta_0 = b[:-1]
-            beta_0 = b[-1]
+            if fit_intercepts:
+                r_current = y - model(0.0, np.zeros(k), beta, theta, x, z, precomputed_w)
+                b = inv_w_w @ (w.T @ r_current)  # Analytic solution means there's a lower bound on N given k
+                theta_0 = b[:-1]
+                beta_0 = b[-1]
 
             # Iterate through all p features
             for j in range(p):
@@ -358,10 +360,8 @@ def coordinate_descent(
                     if cond_19:
                         # beta_j != 0 and theta_j == 0
                         beta[j] = beta_j_hat
-                        r = r_min_j - model_j(beta[j], theta[j, :], x, precomputed_w, j)
                     else:
                         # beta_j != 0 and theta_j != 0
-                        t, l, eps = 0.1, 1.0, 1e-5
                         precomputed_penalties_minus_j = penalties_min_j(
                             beta_0, theta_0, beta, theta, x, z, y, precomputed_w, j
                         )
@@ -410,8 +410,13 @@ def coordinate_descent(
         # Check maximum interaction terms reached. If so early stop just like Tibs.
         n_interaction_terms = count_nonzero(theta.flatten())
         if verbose:
-            print(n_interaction_terms)
-        if n_interaction_terms > max_interaction_terms:
+            print(
+                nth_lam + 1,
+                '| N passes:', i+1,
+                '| N betas:', count_nonzero(beta),
+                '| N interaction terms:',  n_interaction_terms
+            )
+        if n_interaction_terms >= max_interaction_terms:
             print('Maximum Interaction Terms reached.')
             break
 

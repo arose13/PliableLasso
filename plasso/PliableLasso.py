@@ -15,7 +15,7 @@ class PliableLasso(BaseEstimator):
     Pliable Lasso https://arxiv.org/pdf/1712.00484.pdf
     """
     def __init__(self, alpha=0.5, eps=1e-2, n_lam=50, min_lam=0,
-                 max_interaction_terms=500, max_iter=100, fit_intercepts=False,
+                 max_interaction_terms=500, max_iter=100, fit_intercepts=True,
                  verbose=False):
         self.min_lam, self.alpha, self.eps = min_lam, alpha, eps
         self.n_lam = n_lam
@@ -107,7 +107,7 @@ class PliableLasso(BaseEstimator):
             X, Z, y,
             beta_0, theta_0, beta, theta,
             self.alpha, lambda_path,
-            self.max_iter, self.max_interaction_terms,
+            self.max_iter, self.max_interaction_terms, self.fit_intercepts,
             self.verbose
         )
 
@@ -169,6 +169,7 @@ class PliableLasso(BaseEstimator):
 
         graph.plot(self.paths['lam'], self.paths['beta_0'], color='black', linewidth=2, label=r'$\beta_0$')
         graph.plot(self.paths['lam'], self.paths['theta_0'], label=r'$\theta_0$')
+        graph.ylabel('Intercepts')
         graph.xlabel(r'$\lambda$')
         graph.xscale('log')
 
