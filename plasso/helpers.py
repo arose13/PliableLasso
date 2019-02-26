@@ -121,6 +121,9 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
                     j_hat, k_hat = j, k
                     x_min = temp
 
+    # Check convergence
+    is_converged = abs(x_min) < eps
+
     xnorm = np.sqrt(a[j_hat] ** 2 + b[k_hat] ** 2)
 
     beta_j_hat = (beta_j - t * grad_beta) / (1 + c / xnorm)
@@ -129,7 +132,7 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
     theta_j_hat = soft_thres(scrat, g2_thres)
     theta_j_hat = theta_j_hat / (1 + c * (1 / xnorm + 1 / b[k_hat]))
 
-    return beta_j_hat, theta_j_hat
+    return beta_j_hat, theta_j_hat, is_converged
 
 
 @njit()
@@ -339,9 +342,10 @@ def coordinate_descent(
                 beta_0 = b[-1]
 
             # Iterate through all p features
+            r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
             for j in range(p):
                 x_j = x[:, j]
-                r_min_j = y - model_min_j(beta_0, theta_0, beta, theta, x, z, j, precomputed_w)
+                r_min_j = r + model_j(beta[j], theta[j, :], x, precomputed_w, j)
                 w_j = precomputed_w[j]
 
                 # Check if beta_j == 0 and theta_j == 0
@@ -380,11 +384,18 @@ def coordinate_descent(
                             grad_beta_j = -np.sum(x_j * r) / n
                             grad_theta_j = -w_j.T @ r / n
 
-                            beta_j_hat, theta_j_hat = solve_abg(
-                                beta_j_hat, theta_j_hat,
-                                grad_beta_j, grad_theta_j,
-                                alpha, lam, t
-                            )
+                            # Solve ABG
+                            for l in range(9):
+                                tt = t * 0.5 ** l  # Reduce backtracking parameter if it fails to converge
+                                beta_j_hat, theta_j_hat, is_converged = solve_abg(
+                                    beta_j_hat, theta_j_hat,
+                                    grad_beta_j, grad_theta_j,
+                                    alpha, lam, tt
+                                )
+                                if is_converged:
+                                    break
+                                else:
+                                    print('Solve ABG failed @', tt)
 
                             # Update coefficients
                             beta[j] = beta_j_hat
@@ -411,7 +422,7 @@ def coordinate_descent(
         n_interaction_terms = count_nonzero(theta.flatten())
         if verbose:
             print(
-                nth_lam + 1,
+                'Lam:', nth_lam + 1,
                 '| N passes:', i+1,
                 '| N betas:', count_nonzero(beta),
                 '| N interaction terms:',  n_interaction_terms

@@ -181,7 +181,8 @@ class PliableLasso(BaseEstimator):
         p = p.shape[1]
 
         for j in range(p):
-            graph.plot(self.paths['lam'], self.paths['theta'][:, j, :], linewidth=1)
+            if np.any(self.paths['theta'][:, j, :]):
+                graph.plot(self.paths['lam'], self.paths['theta'][:, j, :], linewidth=1)
 
         graph.ylabel(r'$\theta$')
         graph.xlabel(r'$\lambda$')
