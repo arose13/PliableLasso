@@ -2,6 +2,8 @@ import warnings
 import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
+from sklearn.model_selection import train_test_split, KFold
+from sklearn.metrics import mean_squared_error
 
 from .helpers import *
 
@@ -15,11 +17,12 @@ class PliableLasso(BaseEstimator):
     Pliable Lasso https://arxiv.org/pdf/1712.00484.pdf
     """
     def __init__(self, alpha=0.5, eps=1e-2, n_lam=50, min_lam=0,
-                 max_interaction_terms=500, max_iter=100, fit_intercepts=True,
+                 max_interaction_terms=500, max_iter=100, fit_intercepts=True, cv=3, metric=mean_squared_error,
                  verbose=False):
         self.min_lam, self.alpha, self.eps = min_lam, alpha, eps
         self.n_lam = n_lam
         self.max_iter, self.max_interaction_terms = max_iter, max_interaction_terms
+        self.cv, self.metric = cv, metric
         self.fit_intercepts = fit_intercepts
 
         # Model coefficients
@@ -41,7 +44,7 @@ class PliableLasso(BaseEstimator):
         elif optimizer == OPTIMISE_COORDINATE:
             return self._fit_coordinate_descent(X, Z, y)
         else:
-            raise ValueError(f'Only allowed optimizers are {OPTIMISE_COORDINATE} or {OPTIMISE_CONVEX}')
+            raise ValueError('Only allowed optimizers are {} or {}'.format(OPTIMISE_COORDINATE, OPTIMISE_CONVEX))
 
     def _fit_convex_optimization(self, X, Z, y):
         try:
@@ -99,17 +102,43 @@ class PliableLasso(BaseEstimator):
         lambda_path = np.logspace(np.log10(lambda_max), np.log10(lambda_min), self.n_lam)
         lambda_path = lambda_path[lambda_path >= self.min_lam]
         if len(lambda_path) == 0:
-            raise ValueError(f'`min_lam` was set too high! Maximum lambda for this problem is {lambda_max}')
+            raise ValueError('`min_lam` was set too high! Maximum lambda for this problem is {}'.format(lambda_max))
         self.min_lam = max(lambda_path.min(), self.min_lam)
 
         # Step 2: Update coefficients with coordinate descent
-        result = coordinate_descent(
-            X, Z, y,
-            beta_0, theta_0, beta, theta,
-            self.alpha, lambda_path,
-            self.max_iter, self.max_interaction_terms, self.fit_intercepts,
-            self.verbose
-        )
+        if self.cv > 1 and isinstance(self.cv, int):
+            # TODO 2/27/19 CV
+            k_fold_cv = KFold(self.cv)
+            score_paths = []
+            for indices_train, indices_test in k_fold_cv.split(X):
+                result_i = coordinate_descent(
+                    X[indices_train, :], Z[indices_train, :], y[indices_train],
+                    beta_0, theta_0, beta, theta,
+                    self.alpha, lambda_path,
+                    self.max_iter, self.max_interaction_terms, self.fit_intercepts,
+                    self.verbose
+                )
+                # Score all models on the lambda path
+                score_paths.append(
+                    self._score_models_on_lambda_path(
+                        result_i,
+                        X[indices_test, :], Z[indices_test, :], y[indices_test]
+                    )
+                )
+
+            # TODO 2/27/19 compute the mean on the correct axis and then get the argmax of the best metric
+
+        elif 0 < self.cv < 1:
+            pass  # TODO 2/27/19 train test split
+        else:
+            # Simply solve the lambda path
+            result = coordinate_descent(
+                X, Z, y,
+                beta_0, theta_0, beta, theta,
+                self.alpha, lambda_path,
+                self.max_iter, self.max_interaction_terms, self.fit_intercepts,
+                self.verbose
+            )
 
         # Step 3: Save results
         var_names = ['lam', 'beta_0', 'theta_0', 'beta', 'theta']
@@ -135,7 +164,18 @@ class PliableLasso(BaseEstimator):
         for var in ['lam', 'beta_0', 'theta_0', 'beta', 'theta']:
             self.paths[var] = []
 
-    def predict(self, X, Z):
+    def _score_models_on_lambda_path(self, coordinate_descent_results, x, z, y):
+        # Variables come in this order ['lam', 'beta_0', 'theta_0', 'beta', 'theta']
+        precomputed_w = compute_w(x, z)
+        scores = []
+        for lam_i, beta_0, theta_0, beta, theta in zip(*coordinate_descent_results):
+            scores.append(self.metric(
+                y_true=y,
+                y_pred=model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
+            ))
+        return np.array(scores)
+
+    def predict(self, X, Z, lam=None):
         if self.beta is None:
             raise NotFittedError
 
@@ -144,6 +184,10 @@ class PliableLasso(BaseEstimator):
 
         if isinstance(Z, pd.Series) or isinstance(Z, pd.DataFrame):
             Z = Z.values
+
+        if lam is None:
+            # TODO 2/27/19 if None then use the most predictive lambda
+            pass
 
         return model(self.beta_0, self.theta_0, self.beta, self.theta, X, Z, precomputed_w=compute_w(X, Z))
 
