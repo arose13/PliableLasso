@@ -10,11 +10,11 @@ def placebo():
     return wrapper
 
 
-njit = partial(njit, cache=True)
-# njit = placebo
+# njit = partial(njit, cache=True)
+njit = placebo
 
 
-def lam_min_max(x, y, alpha, cv=1, eps=1e-2):
+def lam_min_max(x, y, alpha, eps=1e-2, cv=1):
     """
     Approximate the minimum and maximum values for the lambda
 
@@ -151,6 +151,8 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
 
     # Check convergence
     is_converged = abs(x_min) < eps
+    if is_converged is False:
+        print(abs(x_min), 'not <', eps)
 
     xnorm = np.sqrt(a[j_hat] ** 2 + b[k_hat] ** 2)
 
@@ -358,7 +360,7 @@ def coordinate_descent(
     beta_list = []
     theta_list = []
 
-    tolerance = 1e-5
+    tolerance = 1e-6
     for nth_lam, lam in enumerate(lam_path):
         for i in range(max_iter):
             iter_prev_score = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
@@ -438,8 +440,7 @@ def coordinate_descent(
                             )
                             improvement = objective_prev - objective_current
                             if abs(improvement) < tolerance:
-                                # Converged
-                                break
+                                break  # Converged
                             else:
                                 objective_prev = objective_current
 

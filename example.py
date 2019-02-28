@@ -64,7 +64,7 @@ if __name__ == '__main__':
     print(f'\nlambda range [{lambda_min}, {lambda_max}]')
 
     # Optimisation Test (Convex Optimisation)
-    plasso = PliableLasso()
+    plasso = PliableLasso(verbose=True)
 
     print('\n=== Fitting Model via Convex Optimisation ===')
     plasso.fit(x, z, y, optimizer=OPTIMISE_CONVEX)
@@ -108,6 +108,9 @@ if __name__ == '__main__':
     graph.show()
 
     plasso.plot_intercepts_path()
+    graph.show()
+
+    plasso.plot_score_path()
     graph.show()
 
     print('\n== Outputs ==')

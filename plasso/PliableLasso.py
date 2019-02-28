@@ -88,13 +88,16 @@ class PliableLasso(BaseEstimator):
     def _fit_coordinate_descent(self, X, Z, y):
         self._reset_paths_dict_and_variables()
 
+        # Step 0: Validate input
+        # TODO (2/28/2019) ensure that n after train splitting is smaller than k to prevent singular matrix
+
         # Step 1: Initial Setup
         n, p = X.shape
         k = Z.shape[1]
         beta_0, theta_0, beta, theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
 
         # Solve lambda path spec
-        lambda_max, lambda_min = lam_min_max(X, y, self.alpha, self.cv, 1e-2)
+        lambda_max, lambda_min = lam_min_max(X, y, self.alpha, self.eps, self.cv)
         lambda_path = np.logspace(np.log10(lambda_max), np.log10(lambda_min), self.n_lam)
         lambda_path = lambda_path[lambda_path >= self.min_lam]
         if len(lambda_path) == 0:
@@ -189,6 +192,8 @@ class PliableLasso(BaseEstimator):
         return np.array(scores)
 
     def predict(self, X, Z, lam=None):
+        X, Z = X.astype(float), Z.astype(float)
+
         if self.beta is None:
             raise NotFittedError
 
