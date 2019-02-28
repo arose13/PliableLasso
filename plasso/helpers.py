@@ -14,24 +14,52 @@ njit = partial(njit, cache=True)
 # njit = placebo
 
 
-def lam_min_max(x, y, alpha, eps=1e-2):
+def lam_min_max(x, y, alpha, cv=1, eps=1e-2):
     """
     Approximate the minimum and maximum values for the lambda
 
     :param x:
     :param y:
     :param alpha:
+    :param cv: Number used to estimate the actual sample size the solver will see.
     :param eps:
     :return:
     """
     assert 0 < eps < 1, '`eps` must be between 0 and 1'
+
+    if cv > 1 and isinstance(cv, int):
+        scale = (cv-1)/cv
+    elif 0 < cv < 1:
+        scale = 1-cv
+    else:
+        scale = 1.0
+
     n, p = x.shape
     dots = np.zeros(p)
     for j in range(p):
         dots[j] = x[:, j].T @ y
-    lam_max = np.abs(dots).max() / (n*alpha)
+    lam_max = np.abs(dots).max() / (n*scale*alpha)
     lam_min = eps * lam_max
     return lam_max, lam_min
+
+
+def find_nearest(array: np.ndarray, value: np.ndarray, return_idx=False):
+    """
+    Find the nearest value or index for a value in an array
+    - from rosey
+
+    >>> a = np.array([1, 2, 3, 6, 7, 8])
+    >>> find_nearest(a, 4)
+    3
+    >>> find_nearest(a, 4, return_idx=True)
+    2
+    :param array:
+    :param value:
+    :param return_idx:
+    :return:
+    """
+    idx = (np.abs(array-value)).argmin()
+    return idx if return_idx else array[idx]
 
 
 @njit()
@@ -304,7 +332,7 @@ def coordinate_descent(
         x, z, y,
         beta_0, theta_0, beta, theta,
         alpha, lam_path,
-        max_iter, max_interaction_terms, fit_intercepts,
+        max_iter, max_interaction_terms,
         verbose
 ):
     n, p = x.shape
@@ -337,11 +365,10 @@ def coordinate_descent(
 
             # Compute beta_0 and theta_0 from the least square regression of the current residual on Z
             # Z + 1s = W matrix where Z is for theta_0 and 1s is for beta_0
-            if fit_intercepts:
-                r_current = y - model(0.0, np.zeros(k), beta, theta, x, z, precomputed_w)
-                b = inv_w_w @ (w.T @ r_current)  # Analytic solution means there's a lower bound on N given k
-                theta_0 = b[:-1]
-                beta_0 = b[-1]
+            r_current = y - model(0.0, np.zeros(k), beta, theta, x, z, precomputed_w)
+            b = inv_w_w @ (w.T @ r_current)  # Analytic solution means there's a lower bound on N given k
+            theta_0 = b[:-1]
+            beta_0 = b[-1]
 
             # Iterate through all p features
             r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
