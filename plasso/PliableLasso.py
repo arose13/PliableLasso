@@ -95,6 +95,7 @@ class PliableLasso(BaseEstimator):
         # Step 1: Initial Setup
         n, p = X.shape
         k = Z.shape[1]
+        # TODO 2/27/19 remove this line to prevent variable copying in loops
         beta_0, theta_0, beta, theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
 
         # Solve lambda path spec
@@ -107,13 +108,13 @@ class PliableLasso(BaseEstimator):
 
         # Step 2: Update coefficients with coordinate descent
         if self.cv > 1 and isinstance(self.cv, int):
-            # TODO 2/27/19 CV
+            # Cross Validation
             k_fold_cv = KFold(self.cv)
             score_paths = []
             for indices_train, indices_test in k_fold_cv.split(X):
-                result_i = coordinate_descent(
+                result = coordinate_descent(
                     X[indices_train, :], Z[indices_train, :], y[indices_train],
-                    beta_0, theta_0, beta, theta,
+                    0.0, np.zeros(k), np.zeros(p), np.zeros((p, k)),  # beta_0, theta_0, beta, theta,
                     self.alpha, lambda_path,
                     self.max_iter, self.max_interaction_terms, self.fit_intercepts,
                     self.verbose
@@ -121,12 +122,14 @@ class PliableLasso(BaseEstimator):
                 # Score all models on the lambda path
                 score_paths.append(
                     self._score_models_on_lambda_path(
-                        result_i,
+                        result,
                         X[indices_test, :], Z[indices_test, :], y[indices_test]
                     )
                 )
-
             # TODO 2/27/19 compute the mean on the correct axis and then get the argmax of the best metric
+            score_paths = np.vstack(score_paths)
+            mean_score_path = score_paths.mean(axis=0)
+            lam_best = mean_score_path.argmin()
 
         elif 0 < self.cv < 1:
             pass  # TODO 2/27/19 train test split
@@ -139,19 +142,20 @@ class PliableLasso(BaseEstimator):
                 self.max_iter, self.max_interaction_terms, self.fit_intercepts,
                 self.verbose
             )
+            lam_best = -1
 
         # Step 3: Save results
+        # TODO 2/27/19 NOTE: result_i is only the results of the last CV pass. This is probably not the way to do it.
         var_names = ['lam', 'beta_0', 'theta_0', 'beta', 'theta']
         self.paths = {var_name: var_list for var_name, var_list in zip(var_names, result)}
         for var in var_names[2:]:
             self.paths[var] = np.stack(self.paths[var])
 
         # Step 4: Select best coefficients
-        # TODO (2/21/2019) replace with WAY better logic
-        self.beta_0 = self.paths['beta_0'][-1]
-        self.theta_0 = self.paths['theta_0'][-1]
-        self.beta = self.paths['beta'][-1]
-        self.theta = self.paths['theta'][-1]
+        self.beta_0 = self.paths['beta_0'][lam_best]
+        self.theta_0 = self.paths['theta_0'][lam_best]
+        self.beta = self.paths['beta'][lam_best]
+        self.theta = self.paths['theta'][lam_best]
 
         return self
 

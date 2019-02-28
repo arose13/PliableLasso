@@ -37,4 +37,9 @@ if __name__ == '__main__':
     model.plot_intercepts_path()
     graph.show()
 
+    graph.figure(figsize=(6, 6))
+    graph.plot(y, model.predict(x, z), 'o')
+    graph.plot([y.min(), y.max()], [y.min(), y.max()], '--', color='black')
+    graph.show()
+
     print('--- Done ---')

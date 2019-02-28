@@ -310,6 +310,8 @@ def coordinate_descent(
     n, p = x.shape
     k = z.shape[1]
 
+    theta_0, beta, theta = theta_0.copy(), beta.copy(), theta.copy()
+
     # Precomputed variables
     precomputed_w = compute_w(x, z)
     w = np.ones((n, k + 1))  # W = Z + 1s
