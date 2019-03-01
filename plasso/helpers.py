@@ -10,8 +10,8 @@ def placebo():
     return wrapper
 
 
-# njit = partial(njit, cache=True)
-njit = placebo
+njit = partial(njit, cache=True)
+# njit = placebo
 
 
 def lam_min_max(x, y, alpha, eps=1e-2, cv=1):
@@ -37,7 +37,7 @@ def lam_min_max(x, y, alpha, eps=1e-2, cv=1):
     n, p = x.shape
     dots = np.zeros(p)
     for j in range(p):
-        dots[j] = x[:, j].T @ y
+        dots[j] = x[:, j].T @ (y - y.mean())
     lam_max = np.abs(dots).max() / (n*scale*alpha)
     lam_min = eps * lam_max
     return lam_max, lam_min
@@ -150,17 +150,15 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
                     x_min = temp
 
     # Check convergence
-    is_converged = abs(x_min) < eps
-    if is_converged is False:
-        print(abs(x_min), 'not <', eps)
+    is_converged = abs(x_min) < eps or a[j_hat] < 0 or b[k_hat] < 0
 
-    xnorm = np.sqrt(a[j_hat] ** 2 + b[k_hat] ** 2)
+    xnorm = (a[j_hat] ** 2 + b[k_hat] ** 2) ** 0.5  # l2 norm
 
     beta_j_hat = (beta_j - t * grad_beta) / (1 + c / xnorm)
 
     scrat = theta_j - t * grad_theta
     theta_j_hat = soft_thres(scrat, g2_thres)
-    theta_j_hat = theta_j_hat / (1 + c * (1 / xnorm + 1 / b[k_hat]))
+    theta_j_hat = theta_j_hat / (1 + c * ((1 / xnorm) + (1 / abs(b[k_hat]))))  # Ensure b_hat norm is always positive
 
     return beta_j_hat, theta_j_hat, is_converged
 
@@ -346,7 +344,7 @@ def coordinate_descent(
     precomputed_w = compute_w(x, z)
     w = np.ones((n, k + 1))  # W = Z + 1s
     w[:, :-1] = z
-    inv_w_w = la.inv(w.T @ w)
+    inv_w_w = la.inv(w.T @ w + 1e-9*np.eye(k+1))  # Ensuring we never have singular matrices from k+1 > n
 
     # Solve ABG Parameters
     t = 0.1 / (x**2).mean()
@@ -368,7 +366,7 @@ def coordinate_descent(
             # Compute beta_0 and theta_0 from the least square regression of the current residual on Z
             # Z + 1s = W matrix where Z is for theta_0 and 1s is for beta_0
             r_current = y - model(0.0, np.zeros(k), beta, theta, x, z, precomputed_w)
-            b = inv_w_w @ (w.T @ r_current)  # Analytic solution means there's a lower bound on N given k
+            b = inv_w_w @ (w.T @ r_current)  # Analytic solution how no sample lower bound (Z.T @ Z + cI)^-1 @ (Z.T @ r)
             theta_0 = b[:-1]
             beta_0 = b[-1]
 
@@ -413,7 +411,7 @@ def coordinate_descent(
                             r = r_min_j - model_j(beta[j], theta[j, :], x, precomputed_w, j)
 
                             grad_beta_j = -np.sum(x_j * r) / n
-                            grad_theta_j = -w_j.T @ r / n
+                            grad_theta_j = (-w_j.T @ r) / n
 
                             # Solve ABG
                             for l in range(9):
