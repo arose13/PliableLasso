@@ -88,9 +88,6 @@ class PliableLasso(BaseEstimator):
     def _fit_coordinate_descent(self, X, Z, y):
         self._reset_paths_dict_and_variables()
 
-        # Step 0: Validate input
-        # TODO (2/28/2019) ensure that n after train splitting is smaller than k to prevent singular matrix
-
         # Step 1: Initial Setup
         n, p = X.shape
         k = Z.shape[1]
