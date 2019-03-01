@@ -11,6 +11,7 @@ import matplotlib.pyplot as graph
 
 if __name__ == '__main__':
     # Setup
+    np.random.seed(2010)
     n = 1000
     p = 50
     k = 4
@@ -64,7 +65,7 @@ if __name__ == '__main__':
     print(f'\nlambda range [{lambda_min}, {lambda_max}]')
 
     # Optimisation Test (Convex Optimisation)
-    plasso = PliableLasso(min_lam=0.5, fit_intercepts=False, verbose=False, max_iter=100)
+    plasso = PliableLasso(cv=0.1, verbose=True)
 
     print('\n=== Fitting Model via Convex Optimisation ===')
     plasso.fit(x, z, y, optimizer=OPTIMISE_CONVEX)
@@ -101,7 +102,17 @@ if __name__ == '__main__':
 
     y_hat = plasso.predict(x, z)
 
-    graph.plot()
+    plasso.plot_coef_paths()
+    graph.show()
+
+    plasso.plot_interaction_paths()
+    graph.show()
+
+    plasso.plot_intercepts_path()
+    graph.show()
+
+    plasso.plot_score_path()
+    graph.show()
 
     print('\n== Outputs ==')
 
