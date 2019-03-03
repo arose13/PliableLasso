@@ -2,6 +2,8 @@ import numpy as np
 import numpy.linalg as la
 from numba import njit
 from functools import partial
+from sklearn.utils.extmath import row_norms
+from sklearn.preprocessing.data import _handle_zeros_in_scale
 
 
 def placebo():
@@ -12,6 +14,29 @@ def placebo():
 
 njit = partial(njit, cache=True)
 # njit = placebo
+
+
+def preprocess_x_z_y(x, z, y, normalize=True):
+    # Offsets
+    # Swap with np.average if I want sample weights
+    x_offset, z_offset, y_offset = [a.mean(axis=0) for a in (x, z, y)]
+    x -= x_offset
+    z -= z_offset
+    y -= y_offset
+
+    # Scaling
+    if normalize:
+        x, z = x.T, z.T
+        x_scale, z_scale = row_norms(x), row_norms(z)
+        x_scale, z_scale = [_handle_zeros_in_scale(a, copy=False) for a in (x_scale, z_scale)]
+        x /= x_scale[:, np.newaxis]
+        z /= z_scale[:, np.newaxis]
+        x, z = x.T, z.T
+    else:
+        x_scale = np.ones(x.shape[1], dtype=x.dtype)
+        z_scale = np.ones(z.shape[1], dtype=z.dtype)
+
+    return x, z, y, x_offset, z_offset, x_scale, z_scale, y_offset
 
 
 def lam_min_max(x, y, alpha, eps=1e-2, cv=1):

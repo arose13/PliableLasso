@@ -4,8 +4,11 @@ from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.metrics import mean_squared_error
+from sklearn.utils import check_X_y
 
 from .helpers import *
+
+from sklearn.linear_model import LinearRegression, Lasso
 
 OPTIMISE_CONVEX = 'convex'
 OPTIMISE_COORDINATE = 'coordinate'
@@ -86,9 +89,14 @@ class PliableLasso(BaseEstimator):
         return self
 
     def _fit_coordinate_descent(self, X, Z, y):
+        # Step 0: Input checking
+        X, y = check_X_y(X, y, dtype=[np.float64, np.float32], y_numeric=True)
+        Z, _ = check_X_y(Z, y, dtype=[np.float64, np.float32])
         self._reset_paths_dict_and_variables()
 
         # Step 1: Initial Setup
+        X, Z, y, X_offset, Z_offset, X_scale, Z_scale, y_offset = preprocess_x_z_y(X, Z, y)
+
         n, p = X.shape
         k = Z.shape[1]
         beta_0, theta_0, beta, theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
@@ -114,6 +122,9 @@ class PliableLasso(BaseEstimator):
                     self.max_iter, self.max_interaction_terms,
                     self.verbose
                 )
+
+                result = self._transform_solved_model_parameters(result, X_offset, X_scale, Z_offset, Z_scale, y_offset)
+
                 # Score all models on the lambda path
                 all_score_paths.append(
                     self._score_models_on_lambda_path(
@@ -136,9 +147,13 @@ class PliableLasso(BaseEstimator):
                 self.max_iter, self.max_interaction_terms,
                 self.verbose
             )
+
+            result = self._transform_solved_model_parameters(result, X_offset, X_scale, Z_offset, Z_scale, y_offset)
+
             # Select best lambda
             score_path = self._score_models_on_lambda_path(result, x_test, z_test, y_test)
             best_lambda_index = score_path.argmin()
+
         else:
             # Simply solve the lambda path
             result = coordinate_descent(
@@ -151,10 +166,12 @@ class PliableLasso(BaseEstimator):
             score_path = np.array([0])
             best_lambda_index = -1
 
-        # Step 3: Save results
+        # Step 3: Save the results
         # NOTE: result_i is only the results of the last CV pass. This is probably not the way to do it.
+        # Save
         var_names = ['lam', 'beta_0', 'theta_0', 'beta', 'theta']
         self.paths = {var_name: var_list for var_name, var_list in zip(var_names, result)}
+        print(f'Beta_0 is {type(self.paths["beta_0"])}')
         for var in var_names[2:]:
             self.paths[var] = np.stack(self.paths[var])
         self.paths['score'] = score_path
@@ -176,6 +193,33 @@ class PliableLasso(BaseEstimator):
         for var in ['score', 'lam', 'beta_0', 'theta_0', 'beta', 'theta']:
             self.paths[var] = []
         self.beta_0, self.theta_0, self.beta, self.theta = [None] * 4
+
+    def _transform_solved_model_parameters(
+            self, coordinate_descent_results,
+            x_offset, x_scale, z_offset, z_scale, y_offset
+    ):
+        lams, beta_0_updated, theta_0_updated, beta_updated, theta_updated = [[]] * 5
+        for lam_i, beta_0, theta_0, beta, theta in zip(*coordinate_descent_results):
+            # print(type(lam_i), type(beta_0), type(theta_0), type(beta), type(theta))
+            # TODO 3/2/2019 for each lambda transform model params to one in the correct scale
+            beta = beta / x_scale
+
+            beta_0 = y_offset - (beta_0 + beta @ x_offset)
+
+            theta = theta / z_scale
+
+            # Create new lists
+            lams.append(lam_i)
+            beta_0_updated.append(beta_0)
+            theta_0_updated.append(theta_0)
+            beta_updated.append(beta)
+            theta_updated.append(theta)
+
+        # print(type(lam_i), type(beta_0), type(theta_0), type(beta), type(theta))
+        print(beta_0, theta_0.shape, beta.shape, theta.shape)
+
+        return coordinate_descent_results
+        # return lams, beta_0_updated, theta_0_updated, beta_updated, theta_updated
 
     def _score_models_on_lambda_path(self, coordinate_descent_results, x, z, y):
         # Variables come in this order ['lam', 'beta_0', 'theta_0', 'beta', 'theta']
