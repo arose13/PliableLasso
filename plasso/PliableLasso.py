@@ -198,9 +198,8 @@ class PliableLasso(BaseEstimator):
             self, coordinate_descent_results,
             x_offset, x_scale, z_offset, z_scale, y_offset
     ):
-        lams, beta_0_updated, theta_0_updated, beta_updated, theta_updated = [[]] * 5
+        beta_0_updated, theta_0_updated, beta_updated, theta_updated = [[] for _ in range(4)]
         for lam_i, beta_0, theta_0, beta, theta in zip(*coordinate_descent_results):
-            # print(type(lam_i), type(beta_0), type(theta_0), type(beta), type(theta))
             # TODO 3/2/2019 for each lambda transform model params to one in the correct scale
             beta = beta / x_scale
 
@@ -208,18 +207,16 @@ class PliableLasso(BaseEstimator):
 
             theta = theta / z_scale
 
+            theta_0 = theta @ z_offset
+
             # Create new lists
-            lams.append(lam_i)
             beta_0_updated.append(beta_0)
             theta_0_updated.append(theta_0)
             beta_updated.append(beta)
             theta_updated.append(theta)
 
-        # print(type(lam_i), type(beta_0), type(theta_0), type(beta), type(theta))
-        print(beta_0, theta_0.shape, beta.shape, theta.shape)
-
-        return coordinate_descent_results
-        # return lams, beta_0_updated, theta_0_updated, beta_updated, theta_updated
+        # Updated coordinate descent results
+        return coordinate_descent_results[0], beta_0_updated, theta_0_updated, beta_updated, theta_updated
 
     def _score_models_on_lambda_path(self, coordinate_descent_results, x, z, y):
         # Variables come in this order ['lam', 'beta_0', 'theta_0', 'beta', 'theta']
