@@ -2,8 +2,6 @@ import numpy as np
 import numpy.linalg as la
 from numba import njit
 from functools import partial
-from sklearn.utils.extmath import row_norms
-from sklearn.preprocessing.data import _handle_zeros_in_scale
 
 
 def placebo():
@@ -14,58 +12,6 @@ def placebo():
 
 njit = partial(njit, cache=True)
 # njit = placebo
-
-
-def preprocess_x_z_y(x, z, y, normalize=True):
-    # Offsets
-    # Swap with np.average if I want sample weights
-    x_offset, z_offset, y_offset = [a.mean(axis=0) for a in (x, z, y)]
-    x -= x_offset
-    z -= z_offset
-    y -= y_offset
-
-    # Scaling
-    if normalize:
-        x, z = x.T, z.T
-        x_scale, z_scale = row_norms(x), row_norms(z)
-        x_scale, z_scale = [_handle_zeros_in_scale(a, copy=False) for a in (x_scale, z_scale)]
-        x /= x_scale[:, np.newaxis]
-        z /= z_scale[:, np.newaxis]
-        x, z = x.T, z.T
-    else:
-        x_scale = np.ones(x.shape[1], dtype=x.dtype)
-        z_scale = np.ones(z.shape[1], dtype=z.dtype)
-
-    return x, z, y, x_offset, z_offset, x_scale, z_scale, y_offset
-
-
-def lam_min_max(x, y, alpha, eps=1e-2, cv=1):
-    """
-    Approximate the minimum and maximum values for the lambda
-
-    :param x:
-    :param y:
-    :param alpha:
-    :param cv: Number used to estimate the actual sample size the solver will see.
-    :param eps:
-    :return:
-    """
-    assert 0 < eps < 1, '`eps` must be between 0 and 1'
-
-    if cv > 1 and isinstance(cv, int):
-        scale = (cv-1)/cv
-    elif 0 < cv < 1:
-        scale = 1-cv
-    else:
-        scale = 1.0
-
-    n, p = x.shape
-    dots = np.zeros(p)
-    for j in range(p):
-        dots[j] = x[:, j].T @ (y - y.mean())
-    lam_max = np.abs(dots).max() / (n*scale*alpha)
-    lam_min = eps * lam_max
-    return lam_max, lam_min
 
 
 def find_nearest(array: np.ndarray, value: np.ndarray, return_idx=False):
@@ -216,7 +162,7 @@ def compute_pliable(x, theta, precomputed_w):
 def model(beta_0, theta_0, beta, theta, x, z, precomputed_w):
     """
     The pliable lasso model described in the paper
-    y ~ f(x)
+    y ~ f(X)
 
     formulated as
 
