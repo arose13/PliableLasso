@@ -99,7 +99,7 @@ def _transform_solved_model_parameters(coordinate_descent_results, x_mu, x_sd, z
 
         theta_0 = (theta_0 / z_sd) - (x_mu @ theta)
 
-        beta_0 = y_mu + beta_0 - (beta @ x_mu) - (x_mu @ x_sd)
+        beta_0 = y_mu + beta_0 - (beta @ (x_mu * x_sd)) - (theta @ z_mu @ x_mu)
 
         # Create new lists
         beta_updated.append(beta)
