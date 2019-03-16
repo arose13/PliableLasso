@@ -3,7 +3,7 @@ from codecs import open
 from setuptools import setup, find_packages
 
 
-__version__ = '1.20190222.2303'
+__version__ = '1.20190316.1126'
 
 here = path.abspath(path.dirname(__file__))
 
@@ -26,7 +26,6 @@ setup(
     description='Pliable Lasso',
     long_description=long_description,
     url='https://github.com/arose13/PliableLasso',
-    download_url='https://github.com/arose13/PliableLasso/tarball/' + __version__,
     license='BSD',
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -35,8 +34,7 @@ setup(
         'Topic :: Scientific/Engineering :: Artificial Intelligence'
     ],
     keywords='',
-    packages=find_packages(exclude=['docs', 'tests*']),
-    include_package_data=True,
+    packages=find_packages(),
     author='Stephen Rose',
     install_requires=install_requires,
     dependency_links=dependency_links,
