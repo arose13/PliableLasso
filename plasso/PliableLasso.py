@@ -91,15 +91,21 @@ def _preprocess_x_z_y(x, z, y, normalize):
 
 
 def _transform_solved_model_parameters(coordinate_descent_results, x_mu, x_sd, z_mu, z_sd, y_mu, y_sd):
+    # Some Setup: Compute the pooled standard deviation
+    p, k = len(x_sd), len(z_sd)
+    sd_xx = np.tile(x_sd, (k, 1)).T
+    sd_zz = np.tile(z_sd, (p, 1))
+    sd_xz = sd_xx * sd_zz
+
     beta_0_updated, theta_0_updated, beta_updated, theta_updated = [[] for _ in range(4)]
-    for lam_i, beta_0, theta_0, beta, theta in zip(*coordinate_descent_results):
-        theta = ((theta / z_sd).T / x_sd).T
+    for _, beta_0, theta_0, beta, theta in zip(*coordinate_descent_results):
+        theta = theta / sd_xz
 
         beta = (beta / x_sd) - (theta @ z_mu)
 
         theta_0 = (theta_0 / z_sd) - (x_mu @ theta)
 
-        beta_0 = y_mu + beta_0 - (beta @ (x_mu * x_sd)) - (theta @ z_mu @ x_mu)
+        beta_0 = y_mu + beta_0 - (theta @ z_mu @ x_mu) - (z_mu @ theta_0) - (x_mu @ beta)
 
         # Create new lists
         beta_updated.append(beta)

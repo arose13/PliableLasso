@@ -28,7 +28,8 @@ if __name__ == '__main__':
     model.fit(x, z, y)
     stop_time = time()
     print(f'Runtime : {stop_time - start_time:.5f} sec')
-    print(f'Rsq = {r2_score(y, model.predict(x, z)):.2%}')
+    y_hat = model.predict(x, z)
+    print(f'Rsq = {r2_score(y, y_hat):.2%}')
 
     print('beta_0')
     print(model.beta_0)
@@ -55,7 +56,7 @@ if __name__ == '__main__':
     graph.show()
 
     graph.figure(figsize=(6, 6))
-    graph.plot(y, model.predict(x, z), 'o', alpha=0.75)
+    graph.plot(y, y_hat, 'o', alpha=0.75)
     graph.plot([y.min(), y.max()], [y.min(), y.max()], '--', color='black')
     graph.xlabel('True')
     graph.ylabel('Predicted')
