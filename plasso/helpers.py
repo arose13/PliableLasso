@@ -14,35 +14,6 @@ njit = partial(njit, cache=True)
 # njit = placebo
 
 
-def lam_min_max(x, y, alpha, eps=1e-2, cv=1):
-    """
-    Approximate the minimum and maximum values for the lambda
-
-    :param x:
-    :param y:
-    :param alpha:
-    :param cv: Number used to estimate the actual sample size the solver will see.
-    :param eps:
-    :return:
-    """
-    assert 0 < eps < 1, '`eps` must be between 0 and 1'
-
-    if cv > 1 and isinstance(cv, int):
-        scale = (cv-1)/cv
-    elif 0 < cv < 1:
-        scale = 1-cv
-    else:
-        scale = 1.0
-
-    n, p = x.shape
-    dots = np.zeros(p)
-    for j in range(p):
-        dots[j] = x[:, j].T @ (y - y.mean())
-    lam_max = np.abs(dots).max() / (n*scale*alpha)
-    lam_min = eps * lam_max
-    return lam_max, lam_min
-
-
 def find_nearest(array: np.ndarray, value: np.ndarray, return_idx=False):
     """
     Find the nearest value or index for a value in an array
@@ -191,7 +162,7 @@ def compute_pliable(x, theta, precomputed_w):
 def model(beta_0, theta_0, beta, theta, x, z, precomputed_w):
     """
     The pliable lasso model described in the paper
-    y ~ f(x)
+    y ~ f(X)
 
     formulated as
 
@@ -414,7 +385,7 @@ def coordinate_descent(
                             grad_theta_j = (-w_j.T @ r) / n
 
                             # Solve ABG
-                            for l in range(9):
+                            for l in range(3):
                                 tt = t * 0.5 ** l  # Reduce backtracking parameter if it fails to converge
                                 beta_j_hat, theta_j_hat, is_converged = solve_abg(
                                     beta_j_hat, theta_j_hat,

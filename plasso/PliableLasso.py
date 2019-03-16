@@ -1,14 +1,120 @@
 import warnings
+import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.metrics import mean_squared_error
+from sklearn.utils import check_X_y
+from sklearn.preprocessing.data import _handle_zeros_in_scale
 
 from .helpers import *
 
+from sklearn.linear_model import LinearRegression, Lasso
+
 OPTIMISE_CONVEX = 'convex'
 OPTIMISE_COORDINATE = 'coordinate'
+
+
+def lam_min_max(x, y, alpha, eps=1e-2, cv=1):
+    """
+    Approximate the minimum and maximum values for the lambda
+
+    :param x:
+    :param y:
+    :param alpha:
+    :param cv: Number used to estimate the actual sample size the solver will see.
+    :param eps:
+    :return:
+    """
+    assert 0 < eps < 1, '`eps` must be between 0 and 1'
+
+    if cv > 1 and isinstance(cv, int):
+        scale = (cv-1)/cv
+    elif 0 < cv < 1:
+        scale = 1-cv
+    else:
+        scale = 1.0
+
+    n, p = x.shape
+    dots = np.zeros(p)
+    for j in range(p):
+        dots[j] = x[:, j].T @ (y - y.mean())
+    lam_max = np.abs(dots).max() / (n*scale*alpha)
+    lam_min = eps * lam_max
+    return lam_max, lam_min
+
+
+def _binary_columns(a: np.ndarray):
+    """
+    Returns a vector of where binary columns are in matrix a
+    """
+    assert a.ndim == 2, 'Input is not a matrix, {}'.format(a)
+    is_binary = [len(np.unique(a[:, j])) == 2 for j in range(a.shape[1])]
+    return np.array(is_binary)
+
+
+def _preprocess_x_z_y(x, z, y, normalize):
+    # Check for binary traits
+    x_binary_columns, z_binary_columns = _binary_columns(x), _binary_columns(z)
+
+    # Offsetting
+    if normalize:
+        # Swap with np.average if I want sample weights
+        x_offset, z_offset, y_offset = [a.mean(axis=0) for a in (x, z, y)]
+        x_offset[x_binary_columns] = 0.0
+        z_offset[z_binary_columns] = 0.0
+
+        x -= x_offset
+        z -= z_offset
+        y -= y_offset
+    else:
+        x_offset = np.zeros(x.shape[1])
+        z_offset = np.zeros(z.shape[1])
+        y_offset = 0.0
+
+    # Scaling
+    if normalize:
+        x_scale, z_scale, y_scale = [a.std(axis=0) for a in (x, z, y)]
+        x_scale, z_scale, y_scale = [_handle_zeros_in_scale(a) for a in (x_scale, z_scale, y_scale)]
+        x_scale[x_binary_columns] = 1.0
+        z_scale[z_binary_columns] = 1.0
+
+        x /= x_scale
+        z /= z_scale
+    else:
+        x_scale = np.ones(x.shape[1], dtype=x.dtype)
+        z_scale = np.ones(z.shape[1], dtype=z.dtype)
+        y_scale = 1.0
+
+    return x, z, y, x_offset, z_offset, y_offset, x_scale, z_scale, y_scale
+
+
+def _transform_solved_model_parameters(coordinate_descent_results, x_mu, x_sd, z_mu, z_sd, y_mu, y_sd):
+    # Some Setup: Compute the pooled standard deviation
+    p, k = len(x_sd), len(z_sd)
+    sd_xx = np.tile(x_sd, (k, 1)).T
+    sd_zz = np.tile(z_sd, (p, 1))
+    sd_xz = sd_xx * sd_zz
+
+    beta_0_updated, theta_0_updated, beta_updated, theta_updated = [[] for _ in range(4)]
+    for _, beta_0, theta_0, beta, theta in zip(*coordinate_descent_results):
+        theta = theta / sd_xz
+
+        beta = (beta / x_sd) - (theta @ z_mu)
+
+        theta_0 = (theta_0 / z_sd) - (x_mu @ theta)
+
+        beta_0 = y_mu + beta_0 - (theta @ z_mu @ x_mu) - (z_mu @ theta_0) - (x_mu @ beta)
+
+        # Create new lists
+        beta_updated.append(beta)
+        beta_0_updated.append(beta_0)
+        theta_updated.append(theta)
+        theta_0_updated.append(theta_0)
+
+    # Updated coordinate descent results
+    return coordinate_descent_results[0], beta_0_updated, theta_0_updated, beta_updated, theta_updated
 
 
 # noinspection PyPep8Naming
@@ -17,18 +123,24 @@ class PliableLasso(BaseEstimator):
     Pliable Lasso https://arxiv.org/pdf/1712.00484.pdf
     """
     def __init__(self, alpha=0.5, eps=1e-2, n_lam=50, min_lam=0,
-                 max_interaction_terms=500, max_iter=100, cv=3, metric=mean_squared_error,
+                 max_interaction_terms=500, max_iter=100, cv=3, metric=mean_squared_error, normalize=True,
                  verbose=False):
         self.min_lam, self.alpha, self.eps = min_lam, alpha, eps
         self.n_lam = n_lam
         self.max_iter, self.max_interaction_terms = max_iter, max_interaction_terms
         self.cv, self.metric = cv, metric
+        self.normalize = normalize
 
         # Model coefficients
         self.beta_0 = None
         self.theta_0 = None
         self.beta = None
         self.theta = None
+
+        # Scaling terms
+        self.x_sd, self.x_mu = [None] * 2
+        self.z_sd, self.z_mu = [None] * 2
+        self.y_mu = None
 
         # Metrics
         self.verbose = verbose
@@ -86,9 +198,20 @@ class PliableLasso(BaseEstimator):
         return self
 
     def _fit_coordinate_descent(self, X, Z, y):
+        # Step 0: Input checking
+        X, y = check_X_y(X, y, dtype=[np.float64, np.float32], y_numeric=True)
+        Z, _ = check_X_y(Z, y, dtype=[np.float64, np.float32])
         self._reset_paths_dict_and_variables()
 
         # Step 1: Initial Setup
+        Xt, Zt, yt, x_mu, z_mu, y_mu, x_sd, z_sd, y_sd = _preprocess_x_z_y(
+            X.copy(), Z.copy(), y.copy(),
+            self.normalize
+        )
+        self.x_sd, self.x_mu = x_sd, x_mu
+        self.z_sd, self.z_mu = z_sd, z_mu
+        self.y_sd, self.y_mu = y_sd, y_mu
+
         n, p = X.shape
         k = Z.shape[1]
         beta_0, theta_0, beta, theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
@@ -108,12 +231,22 @@ class PliableLasso(BaseEstimator):
             all_score_paths = []
             for indices_train, indices_test in k_fold_cv.split(X):
                 result = coordinate_descent(
-                    X[indices_train, :], Z[indices_train, :], y[indices_train],
+                    Xt[indices_train, :],
+                    Zt[indices_train, :],
+                    yt[indices_train],
                     0.0, np.zeros(k), np.zeros(p), np.zeros((p, k)),  # beta_0, theta_0, beta, theta,
                     self.alpha, lambda_path,
                     self.max_iter, self.max_interaction_terms,
                     self.verbose
                 )
+
+                result = _transform_solved_model_parameters(
+                    result,
+                    x_mu, x_sd,
+                    z_mu, z_sd,
+                    y_mu, y_sd
+                )
+
                 # Score all models on the lambda path
                 all_score_paths.append(
                     self._score_models_on_lambda_path(
@@ -128,17 +261,31 @@ class PliableLasso(BaseEstimator):
 
         elif 0 < self.cv < 1:
             # Train Test Split
-            x_train, x_test, z_train, z_test, y_train, y_test = train_test_split(X, Z, y, test_size=self.cv)
+            indices_train, indices_test = train_test_split(np.arange(len(y)), test_size=self.cv)
             result = coordinate_descent(
-                x_train, z_train, y_train,
+                Xt[indices_train, :],
+                Zt[indices_train, :],
+                yt[indices_train],
                 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k)),  # beta_0, theta_0, beta, theta
                 self.alpha, lambda_path,
                 self.max_iter, self.max_interaction_terms,
                 self.verbose
             )
+
+            result = _transform_solved_model_parameters(
+                result,
+                x_mu, x_sd,
+                z_mu, z_sd,
+                y_mu, y_sd
+            )
+
             # Select best lambda
-            score_path = self._score_models_on_lambda_path(result, x_test, z_test, y_test)
+            score_path = self._score_models_on_lambda_path(
+                result,
+                X[indices_test, :], Z[indices_test, :], y[indices_test]
+            )
             best_lambda_index = score_path.argmin()
+
         else:
             # Simply solve the lambda path
             result = coordinate_descent(
@@ -151,7 +298,7 @@ class PliableLasso(BaseEstimator):
             score_path = np.array([0])
             best_lambda_index = -1
 
-        # Step 3: Save results
+        # Step 3: Save the results
         # NOTE: result_i is only the results of the last CV pass. This is probably not the way to do it.
         var_names = ['lam', 'beta_0', 'theta_0', 'beta', 'theta']
         self.paths = {var_name: var_list for var_name, var_list in zip(var_names, result)}
@@ -186,6 +333,7 @@ class PliableLasso(BaseEstimator):
                 y_true=y,
                 y_pred=model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
             ))
+        print(f'Last beta_0 => {beta_0}')
         return np.array(scores)
 
     def predict(self, X, Z, lam=None):

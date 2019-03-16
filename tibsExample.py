@@ -18,17 +18,29 @@ if __name__ == '__main__':
 
     y = 4*x[:, 1] + 5*x[:, 1] * z[:, 3]
     y += 3*stats.norm().rvs(n)
+    y += 5
 
     # Fit model
-    model = PliableLasso()
+    model = PliableLasso(cv=0.1, verbose=False, eps=1e-3, normalize=True)
 
     print('=== Fitting Model ===')
     start_time = time()
     model.fit(x, z, y)
     stop_time = time()
     print(f'Runtime : {stop_time - start_time:.5f} sec')
+    y_hat = model.predict(x, z)
+    print(f'Rsq = {r2_score(y, y_hat):.2%}')
 
-    print(f'Rsq = {r2_score(y, model.predict(x, z)):.2%}')
+    print('beta_0')
+    print(model.beta_0)
+    print('theta_0')
+    print(model.theta_0)
+    print('beta')
+    print(model.beta[np.abs(model.beta) > 2])
+    print('theta')
+    print(model.theta[np.abs(model.theta) > 2])
+
+    print()
 
     # Plot coefficient paths
     model.plot_coef_paths()
@@ -44,7 +56,7 @@ if __name__ == '__main__':
     graph.show()
 
     graph.figure(figsize=(6, 6))
-    graph.plot(y, model.predict(x, z), 'o', alpha=0.75)
+    graph.plot(y, y_hat, 'o', alpha=0.75)
     graph.plot([y.min(), y.max()], [y.min(), y.max()], '--', color='black')
     graph.xlabel('True')
     graph.ylabel('Predicted')
