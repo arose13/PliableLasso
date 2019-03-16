@@ -385,7 +385,7 @@ def coordinate_descent(
                             grad_theta_j = (-w_j.T @ r) / n
 
                             # Solve ABG
-                            for l in range(9):
+                            for l in range(3):
                                 tt = t * 0.5 ** l  # Reduce backtracking parameter if it fails to converge
                                 beta_j_hat, theta_j_hat, is_converged = solve_abg(
                                     beta_j_hat, theta_j_hat,
