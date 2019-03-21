@@ -10,7 +10,6 @@ from sklearn.preprocessing.data import _handle_zeros_in_scale
 
 from .helpers import *
 
-from sklearn.linear_model import LinearRegression, Lasso
 
 OPTIMISE_CONVEX = 'convex'
 OPTIMISE_COORDINATE = 'coordinate'
@@ -219,7 +218,7 @@ class PliableLasso(BaseEstimator):
 
         upper_limit_of_memory_required = 64 * n * p * k  # This is the upper limit memory used for precomputed Wj
         if upper_limit_of_memory_required >= psutil.virtual_memory().available:
-            print('Large problem. Caching will be turned off. This will affect performance')
+            print('Large problem detected. Caching will be turned off. This will affect performance')
             self.enable_caching = False
             self.verbose = self.verbose if self.verbose else True
 
@@ -276,7 +275,7 @@ class PliableLasso(BaseEstimator):
                 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k)),  # beta_0, theta_0, beta, theta
                 self.alpha, lambda_path,
                 self.max_iter, self.max_interaction_terms,
-                self.verbose
+                self.verbose, self.enable_caching
             )
 
             result = _transform_solved_model_parameters(
@@ -333,14 +332,13 @@ class PliableLasso(BaseEstimator):
 
     def _score_models_on_lambda_path(self, coordinate_descent_results, x, z, y):
         # Variables come in this order ['lam', 'beta_0', 'theta_0', 'beta', 'theta']
-        precomputed_w = compute_w(x, z)
+        precomputed_w = compute_w(x, z) if self.enable_caching else [np.zeros_like(z)]
         scores = []
         for lam_i, beta_0, theta_0, beta, theta in zip(*coordinate_descent_results):
             scores.append(self.metric(
                 y_true=y,
-                y_pred=model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
+                y_pred=model(beta_0, theta_0, beta, theta, x, z, precomputed_w, enabled_cache=self.enable_caching)
             ))
-        print(f'Last beta_0 => {beta_0}')
         return np.array(scores)
 
     def predict(self, X, Z, lam=None):
