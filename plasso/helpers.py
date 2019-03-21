@@ -304,7 +304,7 @@ def coordinate_descent(
         beta_0, theta_0, beta, theta,
         alpha, lam_path,
         max_iter, max_interaction_terms,
-        verbose
+        verbose, enable_caching
 ):
     n, p = x.shape
     k = z.shape[1]
@@ -312,7 +312,9 @@ def coordinate_descent(
     theta_0, beta, theta = theta_0.copy(), beta.copy(), theta.copy()
 
     # Precomputed variables
+    # TODO 3/20/2019 handle the should cache flag
     precomputed_w = compute_w(x, z)
+
     w = np.ones((n, k + 1))  # W = Z + 1s
     w[:, :-1] = z
     inv_w_w = la.inv(w.T @ w + 1e-9*np.eye(k+1))  # Ensuring we never have singular matrices from k+1 > n
