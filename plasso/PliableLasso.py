@@ -216,7 +216,7 @@ class PliableLasso(BaseEstimator):
         k = Z.shape[1]
         beta_0, theta_0, beta, theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
 
-        upper_limit_of_memory_required = 64 * n * p * k  # This is the upper limit memory used for precomputed Wj
+        upper_limit_of_memory_required = Z.nbytes * p  # This is the upper limit memory used for precomputed Wj
         if upper_limit_of_memory_required >= psutil.virtual_memory().available:
             print('Large problem detected. Caching will be turned off. This will affect performance')
             self.enable_caching = False
