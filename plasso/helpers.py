@@ -135,31 +135,31 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
 
 
 @njit()
-def compute_w_j(x, z, j):
+def compute_w_j(x_j, z):
     w_j = np.zeros(z.shape)
     for k_i in range(z.shape[1]):
-        w_j[:, k_i] = x[:, j] * z[:, k_i]
+        w_j[:, k_i] = x_j * z[:, k_i]
     return w_j
 
 
 @njit()
 def compute_w(x, z):
-    return [compute_w_j(x, z, j) for j in range(x.shape[1])]
+    return [compute_w_j(x[:, j], z) for j in range(x.shape[1])]
 
 
 @njit()
-def compute_pliable(x, theta, precomputed_w):
+def compute_pliable(x, z, theta, precomputed_w, enabled_cache):
     n, p = x.shape
     pliable = np.zeros(n)
     for j in range(p):
         if np.any(theta[j, :]):
-            w_j = precomputed_w[j]
+            w_j = precomputed_w[j] if enabled_cache else compute_w_j(x[:, j], z)
             pliable += w_j @ theta[j, :]
     return pliable
 
 
 @njit()
-def model(beta_0, theta_0, beta, theta, x, z, precomputed_w):
+def model(beta_0, theta_0, beta, theta, x, z, precomputed_w, enabled_cache=False):
     """
     The pliable lasso model described in the paper
     y ~ f(X)
@@ -168,6 +168,7 @@ def model(beta_0, theta_0, beta, theta, x, z, precomputed_w):
 
     y ~ b_0 + Z theta_0 + X b + \sum( w_j theta_ji )
 
+    :param enabled_cache:
     :param precomputed_w: List of all precomputed Wj
     :param beta_0:
     :param theta_0:
@@ -179,12 +180,12 @@ def model(beta_0, theta_0, beta, theta, x, z, precomputed_w):
     """
     intercepts = beta_0 + (z @ theta_0)
     shared_model = x @ beta
-    pliable = compute_pliable(x, theta, precomputed_w)
+    pliable = compute_pliable(x, z, theta, precomputed_w, enabled_cache)
     return intercepts + shared_model + pliable
 
 
 @njit()
-def model_min_j(beta_0, theta_0, beta, theta, x, z, j, precomputed_w):
+def model_min_j(beta_0, theta_0, beta, theta, x, z, j, precomputed_w, enabled_cache):
     """
     y ~ f(x) with X_j removed from the model
 
@@ -200,24 +201,29 @@ def model_min_j(beta_0, theta_0, beta, theta, x, z, j, precomputed_w):
     """
     beta[j] = 0.0
     theta[j, :] = 0.0
-    return model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
+    return model(beta_0, theta_0, beta, theta, x, z, precomputed_w, enabled_cache)
 
 
 @njit()
-def model_j(beta_j, theta_j, x, precomputed_w, j):
+def model_j(beta_j, theta_j, x_j, precomputed_w, j, z, enabled_cache):
     """
     r_j ~ beta_j * X_j + W_j @ theta_j
 
     Only a the residual fit on a single predictor is made
     """
-    return beta_j * x[:, j] + precomputed_w[j] @ theta_j
+    if enabled_cache:
+        return beta_j * x_j + precomputed_w[j] @ theta_j
+    else:
+        # Caching is disabled
+        return beta_j * x_j + compute_w_j(x_j, z) @ theta_j
 
 
 @njit()
-def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w):
+def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w, enabled_cache):
     """
     Full objective function J(beta, theta) described in the paper
 
+    :param enabled_cache:
     :param precomputed_w: List of all precomputed Wj
     :param beta_0:
     :param theta_0:
@@ -231,9 +237,8 @@ def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w):
     :return:
     """
     n, p = x.shape
-    k = z.shape[1]
 
-    mse = (1 / (2 * n)) * la.norm(y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w), 2) ** 2
+    mse = (1 / (2 * n)) * la.norm(y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w, enabled_cache), 2) ** 2
 
     coef_matrix = concat_beta_theta(beta, theta)
 
@@ -249,12 +254,12 @@ def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w):
 
 
 @njit()
-def penalties_min_j(beta_0, theta_0, beta, theta, x, z, y, precomputed_w, ignore_j):
+def penalties_min_j(beta_0, theta_0, beta, theta, x, z, y, precomputed_w, ignore_j, enabled_cache):
     # Compute the MSE, penalty 1 and penalty 2 when the jth predictor is not in the model.
     n, p = x.shape
-    k = z.shape[1]
 
-    mse = (1 / (2*n)) * la.norm(y - model_min_j(beta_0, theta_0, beta, theta, x, z, ignore_j, precomputed_w), 2) ** 2
+    y_hat_min_j = model_min_j(beta_0, theta_0, beta, theta, x, z, ignore_j, precomputed_w, enabled_cache)
+    mse = (1 / (2*n)) * la.norm(y - y_hat_min_j, 2) ** 2
 
     coef_matrix = concat_beta_theta(beta, theta)
 
@@ -273,13 +278,17 @@ def penalties_min_j(beta_0, theta_0, beta, theta, x, z, y, precomputed_w, ignore
 
 
 @njit()
-def partial_objective(beta_j, theta_j, x, r_min_j, precomputed_w, j, alpha, lam, mse, penalty_1, penalty_2, penalty_3):
+def partial_objective(
+        beta_j, theta_j, x, z, r_min_j, precomputed_w, j,
+        alpha, lam, mse, penalty_1, penalty_2, penalty_3,
+        enable_cache
+):
     # This only computes the objective for the jth modifier variables
     n, p = x.shape
     k = theta_j.shape[0]
 
     # Compute only the residual fit of the model since everything else is the same
-    r_hat = model_j(beta_j, theta_j, x, precomputed_w, j)
+    r_hat = model_j(beta_j, theta_j, x[:, j], precomputed_w, j, z, enable_cache)
     mse += (1 / (2*n)) * la.norm(r_min_j - r_hat, 2)**2
 
     # Penalty 1
@@ -304,7 +313,7 @@ def coordinate_descent(
         beta_0, theta_0, beta, theta,
         alpha, lam_path,
         max_iter, max_interaction_terms,
-        verbose
+        verbose, enable_cache
 ):
     n, p = x.shape
     k = z.shape[1]
@@ -312,7 +321,9 @@ def coordinate_descent(
     theta_0, beta, theta = theta_0.copy(), beta.copy(), theta.copy()
 
     # Precomputed variables
-    precomputed_w = compute_w(x, z)
+    # TODO 3/20/2019 handle the should cache flag
+    precomputed_w = compute_w(x, z) if enable_cache else [np.zeros_like(z)]
+
     w = np.ones((n, k + 1))  # W = Z + 1s
     w[:, :-1] = z
     inv_w_w = la.inv(w.T @ w + 1e-9*np.eye(k+1))  # Ensuring we never have singular matrices from k+1 > n
@@ -332,21 +343,26 @@ def coordinate_descent(
     tolerance = 1e-6
     for nth_lam, lam in enumerate(lam_path):
         for i in range(max_iter):
-            iter_prev_score = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
+            iter_prev_score = objective(
+                beta_0, theta_0, beta, theta,
+                x, z, y,
+                alpha, lam, precomputed_w,
+                enable_cache
+            )
 
             # Compute beta_0 and theta_0 from the least square regression of the current residual on Z
             # Z + 1s = W matrix where Z is for theta_0 and 1s is for beta_0
-            r_current = y - model(0.0, np.zeros(k), beta, theta, x, z, precomputed_w)
+            r_current = y - model(0.0, np.zeros(k), beta, theta, x, z, precomputed_w, enable_cache)
             b = inv_w_w @ (w.T @ r_current)  # Analytic solution how no sample lower bound (Z.T @ Z + cI)^-1 @ (Z.T @ r)
             theta_0 = b[:-1]
             beta_0 = b[-1]
 
             # Iterate through all p features
-            r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
+            r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w, enable_cache)
             for j in range(p):
                 x_j = x[:, j]
-                r_min_j = r + model_j(beta[j], theta[j, :], x, precomputed_w, j)
-                w_j = precomputed_w[j]
+                r_min_j = r + model_j(beta[j], theta[j, :], x[:, j], precomputed_w, j, z, enable_cache)
+                w_j = precomputed_w[j] if enable_cache else compute_w_j(x[:, j], z)
 
                 # Check if beta_j == 0 and theta_j == 0
                 cond_17a = np.abs(x_j.T @ r_min_j / n) <= (1-alpha) * lam
@@ -367,19 +383,20 @@ def coordinate_descent(
                     else:
                         # beta_j != 0 and theta_j != 0
                         precomputed_penalties_minus_j = penalties_min_j(
-                            beta_0, theta_0, beta, theta, x, z, y, precomputed_w, j
+                            beta_0, theta_0, beta, theta, x, z, y, precomputed_w, j, enable_cache
                         )
                         pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3 = precomputed_penalties_minus_j
                         objective_prev = partial_objective(
                             beta[j], theta[j, :],
-                            x, r_min_j, precomputed_w, j,
+                            x, z, r_min_j, precomputed_w, j,
                             alpha, lam,
-                            pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3
+                            pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3,
+                            enable_cache
                         )
                         for _ in range(100):  # Max steps
                             beta_j_hat = beta[j]
                             theta_j_hat = theta[j, :]
-                            r = r_min_j - model_j(beta[j], theta[j, :], x, precomputed_w, j)
+                            r = r_min_j - model_j(beta[j], theta[j, :], x[:, j], precomputed_w, j, z, enable_cache)
 
                             grad_beta_j = -np.sum(x_j * r) / n
                             grad_theta_j = (-w_j.T @ r) / n
@@ -403,9 +420,10 @@ def coordinate_descent(
 
                             objective_current = partial_objective(
                                 beta[j], theta[j],
-                                x, r_min_j, precomputed_w, j,
+                                x, z, r_min_j, precomputed_w, j,
                                 alpha, lam,
-                                pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3
+                                pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3,
+                                enable_cache
                             )
                             improvement = objective_prev - objective_current
                             if abs(improvement) < tolerance:
@@ -413,7 +431,12 @@ def coordinate_descent(
                             else:
                                 objective_prev = objective_current
 
-            iter_current_score = objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w)
+            iter_current_score = objective(
+                beta_0, theta_0, beta, theta,
+                x, z, y,
+                alpha, lam, precomputed_w,
+                enable_cache
+            )
             if abs(iter_prev_score - iter_current_score) < tolerance:
                 break  # Converged on lam_i
 

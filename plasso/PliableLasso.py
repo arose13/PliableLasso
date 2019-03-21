@@ -1,5 +1,5 @@
+import psutil
 import warnings
-import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
@@ -10,7 +10,6 @@ from sklearn.preprocessing.data import _handle_zeros_in_scale
 
 from .helpers import *
 
-from sklearn.linear_model import LinearRegression, Lasso
 
 OPTIMISE_CONVEX = 'convex'
 OPTIMISE_COORDINATE = 'coordinate'
@@ -124,12 +123,13 @@ class PliableLasso(BaseEstimator):
     """
     def __init__(self, alpha=0.5, eps=1e-2, n_lam=50, min_lam=0,
                  max_interaction_terms=500, max_iter=100, cv=3, metric=mean_squared_error, normalize=True,
-                 verbose=False):
+                 verbose=False, enable_caching=True):
         self.min_lam, self.alpha, self.eps = min_lam, alpha, eps
         self.n_lam = n_lam
         self.max_iter, self.max_interaction_terms = max_iter, max_interaction_terms
         self.cv, self.metric = cv, metric
         self.normalize = normalize
+        self.enable_caching = enable_caching
 
         # Model coefficients
         self.beta_0 = None
@@ -216,6 +216,12 @@ class PliableLasso(BaseEstimator):
         k = Z.shape[1]
         beta_0, theta_0, beta, theta = 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k))
 
+        upper_limit_of_memory_required = 64 * n * p * k  # This is the upper limit memory used for precomputed Wj
+        if upper_limit_of_memory_required >= psutil.virtual_memory().available:
+            print('Large problem detected. Caching will be turned off. This will affect performance')
+            self.enable_caching = False
+            self.verbose = self.verbose if self.verbose else True
+
         # Solve lambda path spec
         lambda_max, lambda_min = lam_min_max(X, y, self.alpha, self.eps, self.cv)
         lambda_path = np.logspace(np.log10(lambda_max), np.log10(lambda_min), self.n_lam)
@@ -237,7 +243,7 @@ class PliableLasso(BaseEstimator):
                     0.0, np.zeros(k), np.zeros(p), np.zeros((p, k)),  # beta_0, theta_0, beta, theta,
                     self.alpha, lambda_path,
                     self.max_iter, self.max_interaction_terms,
-                    self.verbose
+                    self.verbose, self.enable_caching
                 )
 
                 result = _transform_solved_model_parameters(
@@ -269,7 +275,7 @@ class PliableLasso(BaseEstimator):
                 0.0, np.zeros(k), np.zeros(p), np.zeros((p, k)),  # beta_0, theta_0, beta, theta
                 self.alpha, lambda_path,
                 self.max_iter, self.max_interaction_terms,
-                self.verbose
+                self.verbose, self.enable_caching
             )
 
             result = _transform_solved_model_parameters(
@@ -326,14 +332,13 @@ class PliableLasso(BaseEstimator):
 
     def _score_models_on_lambda_path(self, coordinate_descent_results, x, z, y):
         # Variables come in this order ['lam', 'beta_0', 'theta_0', 'beta', 'theta']
-        precomputed_w = compute_w(x, z)
+        precomputed_w = compute_w(x, z) if self.enable_caching else [np.zeros_like(z)]
         scores = []
         for lam_i, beta_0, theta_0, beta, theta in zip(*coordinate_descent_results):
             scores.append(self.metric(
                 y_true=y,
-                y_pred=model(beta_0, theta_0, beta, theta, x, z, precomputed_w)
+                y_pred=model(beta_0, theta_0, beta, theta, x, z, precomputed_w, enabled_cache=self.enable_caching)
             ))
-        print(f'Last beta_0 => {beta_0}')
         return np.array(scores)
 
     def predict(self, X, Z, lam=None):
