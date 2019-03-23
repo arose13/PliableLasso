@@ -159,7 +159,7 @@ def compute_pliable(x, z, theta, precomputed_w, enabled_cache):
 
 
 @njit()
-def model(beta_0, theta_0, beta, theta, x, z, precomputed_w, enabled_cache=False):
+def model(beta_0, theta_0, beta, theta, x, z, precomputed_w, enabled_cache=True):
     """
     The pliable lasso model described in the paper
     y ~ f(X)
@@ -219,7 +219,7 @@ def model_j(beta_j, theta_j, x_j, precomputed_w, j, z, enabled_cache):
 
 
 @njit()
-def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w, enabled_cache):
+def objective(beta_0, theta_0, beta, theta, x, z, y, alpha, lam, precomputed_w, enabled_cache=True):
     """
     Full objective function J(beta, theta) described in the paper
 
@@ -346,7 +346,7 @@ def coordinate_descent(
     beta_list = []
     theta_list = []
 
-    tolerance = 1e-6
+    tolerance = 1e-5
     for nth_lam, lam in enumerate(lam_path):
         for i in range(max_iter):
             iter_prev_score = objective(
