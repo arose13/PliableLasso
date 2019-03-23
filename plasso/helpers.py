@@ -321,8 +321,14 @@ def coordinate_descent(
     theta_0, beta, theta = theta_0.copy(), beta.copy(), theta.copy()
 
     # Precomputed variables
-    # TODO 3/20/2019 handle the should cache flag
-    precomputed_w = compute_w(x, z) if enable_cache else [np.zeros_like(z)]
+    if enable_cache:
+        precomputed_w = compute_w(x, z)
+    else:
+        precomputed_w = [np.zeros((2, 2))]
+        for _ in range(p-1):
+            precomputed_w.append(np.zeros((2, 2)))
+
+    lam_max = lam_path.max()
 
     w = np.ones((n, k + 1))  # W = Z + 1s
     w[:, :-1] = z
@@ -360,21 +366,26 @@ def coordinate_descent(
             # Iterate through all p features
             r = y - model(beta_0, theta_0, beta, theta, x, z, precomputed_w, enable_cache)
             for j in range(p):
-                x_j = x[:, j]
-                r_min_j = r + model_j(beta[j], theta[j, :], x[:, j], precomputed_w, j, z, enable_cache)
-                w_j = precomputed_w[j] if enable_cache else compute_w_j(x[:, j], z)
+                # SAFE screening rule (https://statweb.stanford.edu/~tibs/ftp/strong.pdf)
+                if abs(x[:, j].T @ y) < 2*lam - lam_max:
+                    continue
+
+                if enable_cache is False:
+                    precomputed_w[j] = compute_w_j(x[:, j], z)
+                w_j = precomputed_w[j]
+                r_min_j = r + model_j(beta[j], theta[j, :], x[:, j], precomputed_w, j, z, True)
 
                 # Check if beta_j == 0 and theta_j == 0
-                cond_17a = np.abs(x_j.T @ r_min_j / n) <= (1-alpha) * lam
+                cond_17a = np.abs(x[:, j].T @ r_min_j / n) <= (1-alpha) * lam
                 cond_17b = la.norm(soft_thres(w_j.T @ r_min_j / n, alpha * lam), 2) <= 2 * (1-alpha) * lam
 
                 if cond_17a and cond_17b:
                     # beta_j == 0 and theta_j == 0
                     pass
                 else:
-                    beta_j_hat = (n / la.norm(x_j, 2)**2) * soft_thres(x_j.T @ r_min_j / n, (1-alpha) * lam)
+                    beta_j_hat = (n / la.norm(x[:, j], 2)**2) * soft_thres(x[:, j].T @ r_min_j / n, (1-alpha) * lam)
 
-                    cond_19 = la.norm(soft_thres(w_j.T @ (r_min_j - x_j * beta_j_hat) / n, alpha * lam), 2)
+                    cond_19 = la.norm(soft_thres(w_j.T @ (r_min_j - x[:, j] * beta_j_hat) / n, alpha * lam), 2)
                     cond_19 = cond_19 <= (1-alpha) * lam
 
                     if cond_19:
@@ -391,14 +402,14 @@ def coordinate_descent(
                             x, z, r_min_j, precomputed_w, j,
                             alpha, lam,
                             pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3,
-                            enable_cache
+                            True
                         )
                         for _ in range(100):  # Max steps
                             beta_j_hat = beta[j]
                             theta_j_hat = theta[j, :]
-                            r = r_min_j - model_j(beta[j], theta[j, :], x[:, j], precomputed_w, j, z, enable_cache)
+                            r = r_min_j - model_j(beta[j], theta[j, :], x[:, j], precomputed_w, j, z, True)
 
-                            grad_beta_j = -np.sum(x_j * r) / n
+                            grad_beta_j = -np.sum(x[:, j] * r) / n
                             grad_theta_j = (-w_j.T @ r) / n
 
                             # Solve ABG
@@ -423,13 +434,16 @@ def coordinate_descent(
                                 x, z, r_min_j, precomputed_w, j,
                                 alpha, lam,
                                 pc_mse, pc_penalty_1, pc_penalty_2, pc_penalty_3,
-                                enable_cache
+                                True
                             )
                             improvement = objective_prev - objective_current
                             if abs(improvement) < tolerance:
                                 break  # Converged
                             else:
                                 objective_prev = objective_current
+
+                if enable_cache is False:
+                    precomputed_w[j] = np.zeros((2, 2))
 
             iter_current_score = objective(
                 beta_0, theta_0, beta, theta,
