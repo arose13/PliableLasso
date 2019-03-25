@@ -260,7 +260,7 @@ class PliableLasso(BaseEstimator):
                     self.verbose, self.enable_caching
                 )
                 if self.backend == BACKEND_PYTORCH:
-                    from .pytorchSolver import coordinate_descent_pytorch
+                    from .torchSolver import coordinate_descent_pytorch
                     result = coordinate_descent_pytorch(*cd_args[:-1])
                 else:
                     result = coordinate_descent(*cd_args)
@@ -296,7 +296,7 @@ class PliableLasso(BaseEstimator):
                 self.verbose, self.enable_caching
             )
             if self.backend == BACKEND_PYTORCH:
-                from .pytorchSolver import coordinate_descent_pytorch
+                from .torchSolver import coordinate_descent_pytorch
                 result = coordinate_descent_pytorch(*cd_args[:-1])
             else:
                 result = coordinate_descent(*cd_args)
@@ -324,7 +324,7 @@ class PliableLasso(BaseEstimator):
                 self.verbose
             )
             if self.backend == BACKEND_PYTORCH:
-                from .pytorchSolver import coordinate_descent_pytorch
+                from .torchSolver import coordinate_descent_pytorch
                 result = coordinate_descent_pytorch(*cd_args)
             else:
                 result = coordinate_descent(*cd_args)

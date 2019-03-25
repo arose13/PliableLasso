@@ -23,8 +23,8 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
     g2_thres = t * alpha * lam
     c = t * (1 - alpha) * lam
 
-    scrat = soft_thres(theta_j - t * grad_theta, g2_thres)
-    g2 = pt.norm(scrat, 2)
+    pre_g2 = soft_thres(theta_j - t * grad_theta, g2_thres)
+    g2 = pt.norm(pre_g2, 2)
 
     root1, root2 = quad_solution(pt.ones(1), 2 * c, 2 * c * g2 - g1 ** 2 - g2 ** 2)
 
@@ -41,7 +41,6 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
         root2 * (c - g2) / (c + root1)
     ]
 
-    # x_min, j_hat, k_hat = accelerate_abg_search(big, a, b, c, g1, g2)
     x_min = big
     j_hat, k_hat = 0, 0
     for j in range(4):
@@ -63,8 +62,8 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
 
     beta_j_hat = (beta_j - t * grad_beta) / (1 + c / xnorm)
 
-    scrat = theta_j - t * grad_theta
-    theta_j_hat = soft_thres(scrat, g2_thres)
+    pre_theta_j_hat = theta_j - t * grad_theta
+    theta_j_hat = soft_thres(pre_theta_j_hat, g2_thres)
     theta_j_hat = theta_j_hat / (1 + c * ((1 / xnorm) + (1 / pt.abs(b[k_hat]))))  # Ensure b_hat norm is always positive
 
     return beta_j_hat, theta_j_hat, is_converged
