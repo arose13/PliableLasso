@@ -8,11 +8,22 @@ from sklearn.metrics import mean_squared_error
 from sklearn.utils import check_X_y
 from sklearn.preprocessing.data import _handle_zeros_in_scale
 
-from .helpers import *
+from .numbaSolver import *
 
 
 OPTIMISE_CONVEX = 'convex'
 OPTIMISE_COORDINATE = 'coordinate'
+BACKEND_CPU = 'cpu'
+BACKEND_PYTORCH = 'pytorch'
+
+
+def import_pytorch():
+    try:
+        import torch as pt
+        it_exists = True
+    except ImportError:
+        it_exists = False
+    return it_exists
 
 
 def lam_min_max(x, y, alpha, eps=1e-2, cv=1):
@@ -123,13 +134,14 @@ class PliableLasso(BaseEstimator):
     """
     def __init__(self, alpha=0.5, eps=1e-2, n_lam=50, min_lam=0,
                  max_interaction_terms=500, max_iter=100, cv=3, metric=mean_squared_error, normalize=True,
-                 verbose=False, enable_caching=True):
+                 verbose=False, enable_caching=True, backend='cpu'):
         self.min_lam, self.alpha, self.eps = min_lam, alpha, eps
         self.n_lam = n_lam
         self.max_iter, self.max_interaction_terms = max_iter, max_interaction_terms
         self.cv, self.metric = cv, metric
         self.normalize = normalize
         self.enable_caching = enable_caching
+        self.backend = backend
 
         # Model coefficients
         self.beta_0 = None
@@ -160,7 +172,7 @@ class PliableLasso(BaseEstimator):
     def _fit_convex_optimization(self, X, Z, y):
         try:
             import cvxpy as cvx
-            from .cvxHelpers import objective_cvx
+            from .cvxSolver import objective_cvx
         except ModuleNotFoundError:
             return self._fallback_to_coordinate_descent(X, Z, y)
 
@@ -222,6 +234,9 @@ class PliableLasso(BaseEstimator):
             self.enable_caching = False
             self.verbose = self.verbose if self.verbose else True
 
+            # Switch to PyTorch if it is available
+            self.backend = BACKEND_PYTORCH if import_pytorch() else BACKEND_CPU
+
         # Solve lambda path spec
         lambda_max, lambda_min = lam_min_max(X, y, self.alpha, self.eps, self.cv)
         lambda_path = np.logspace(np.log10(lambda_max), np.log10(lambda_min), self.n_lam)
@@ -236,15 +251,19 @@ class PliableLasso(BaseEstimator):
             k_fold_cv = KFold(self.cv)
             all_score_paths = []
             for indices_train, indices_test in k_fold_cv.split(X):
-                result = coordinate_descent(
+                cd_args = (
                     Xt[indices_train, :],
                     Zt[indices_train, :],
                     yt[indices_train],
-                    0.0, np.zeros(k), np.zeros(p), np.zeros((p, k)),  # beta_0, theta_0, beta, theta,
                     self.alpha, lambda_path,
                     self.max_iter, self.max_interaction_terms,
                     self.verbose, self.enable_caching
                 )
+                if self.backend == BACKEND_PYTORCH:
+                    from .pytorchSolver import coordinate_descent_pytorch
+                    result = coordinate_descent_pytorch(*cd_args[:-1])
+                else:
+                    result = coordinate_descent(*cd_args)
 
                 result = _transform_solved_model_parameters(
                     result,
@@ -268,15 +287,19 @@ class PliableLasso(BaseEstimator):
         elif 0 < self.cv < 1:
             # Train Test Split
             indices_train, indices_test = train_test_split(np.arange(len(y)), test_size=self.cv)
-            result = coordinate_descent(
+            cd_args = (
                 Xt[indices_train, :],
                 Zt[indices_train, :],
                 yt[indices_train],
-                0.0, np.zeros(k), np.zeros(p), np.zeros((p, k)),  # beta_0, theta_0, beta, theta
                 self.alpha, lambda_path,
                 self.max_iter, self.max_interaction_terms,
                 self.verbose, self.enable_caching
             )
+            if self.backend == BACKEND_PYTORCH:
+                from .pytorchSolver import coordinate_descent_pytorch
+                result = coordinate_descent_pytorch(*cd_args[:-1])
+            else:
+                result = coordinate_descent(*cd_args)
 
             result = _transform_solved_model_parameters(
                 result,
@@ -294,13 +317,17 @@ class PliableLasso(BaseEstimator):
 
         else:
             # Simply solve the lambda path
-            result = coordinate_descent(
+            cd_args = (
                 X, Z, y,
-                beta_0, theta_0, beta, theta,
                 self.alpha, lambda_path,
                 self.max_iter, self.max_interaction_terms,
                 self.verbose
             )
+            if self.backend == BACKEND_PYTORCH:
+                from .pytorchSolver import coordinate_descent_pytorch
+                result = coordinate_descent_pytorch(*cd_args)
+            else:
+                result = coordinate_descent(*cd_args)
             score_path = np.array([0])
             best_lambda_index = -1
 
