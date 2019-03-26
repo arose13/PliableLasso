@@ -21,7 +21,7 @@ if __name__ == '__main__':
     y += 5
 
     # Fit model
-    model = PliableLasso(cv=0.1, verbose=False, eps=1e-2, normalize=True)
+    model = PliableLasso(cv=0.1, verbose=True, eps=1e-2, normalize=True)
 
     print('=== Fitting Model ===')
     start_time = time()

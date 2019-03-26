@@ -1,9 +1,7 @@
 from os import path
 from codecs import open
 from setuptools import setup, find_packages
-
-
-__version__ = '1.20190323.0035'
+from plasso import __version__
 
 here = path.abspath(path.dirname(__file__))
 

@@ -2,6 +2,7 @@ import numpy as np
 import numpy.linalg as la
 from numba import njit
 from functools import partial
+from .packageInfo import __version__
 
 
 def placebo():
@@ -10,8 +11,7 @@ def placebo():
     return wrapper
 
 
-# TODO 3/26/19 detect distributed in the version name and turn off cache if it's there
-njit = partial(njit, cache=True)
+njit = njit if 'cloud' in __version__ else partial(njit, cache=True)
 # njit = placebo
 
 
