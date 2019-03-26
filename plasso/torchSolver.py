@@ -193,7 +193,7 @@ def coordinate_descent_pytorch(x, z, y, alpha, lam_path, max_iter, max_interacti
     # Precomputed Variables
     w = pt.ones(n, k + 1)
     w[:, :-1] = z
-    inv_w_w = pt.inverse(w.t() @ w + 1e-9 * pt.eye(k + 1))
+    inv_w_w = pt.pinverse(w.t() @ w)  # Ensuring we never have singular matrices from k+1 > n
 
     # Solve ABG Parameter
     t = 0.1 / (x ** 2).mean()

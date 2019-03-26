@@ -335,7 +335,7 @@ def coordinate_descent(
 
     w = np.ones((n, k + 1))  # W = Z + 1s
     w[:, :-1] = z
-    inv_w_w = la.inv(w.T @ w + 1e-9*np.eye(k+1))  # Ensuring we never have singular matrices from k+1 > n
+    inv_w_w = la.pinv(w.T @ w)  # Ensuring we never have singular matrices from k+1 > n
 
     # Solve ABG Parameters
     t = 0.1 / (x**2).mean()
