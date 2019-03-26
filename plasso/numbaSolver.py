@@ -10,6 +10,7 @@ def placebo():
     return wrapper
 
 
+# TODO 3/26/19 detect distributed in the version name and turn off cache if it's there
 njit = partial(njit, cache=True)
 # njit = placebo
 
