@@ -2,6 +2,7 @@ import numpy as np
 import numpy.linalg as la
 from numba import njit
 from functools import partial
+from .packageInfo import __version__
 
 
 def placebo():
@@ -10,7 +11,7 @@ def placebo():
     return wrapper
 
 
-njit = partial(njit, cache=True)
+njit = njit if 'cloud' in __version__ else partial(njit, cache=True)
 # njit = placebo
 
 
@@ -310,7 +311,6 @@ def partial_objective(
 @njit()
 def coordinate_descent(
         x, z, y,
-        beta_0, theta_0, beta, theta,
         alpha, lam_path,
         max_iter, max_interaction_terms,
         verbose, enable_cache
@@ -318,7 +318,10 @@ def coordinate_descent(
     n, p = x.shape
     k = z.shape[1]
 
-    theta_0, beta, theta = theta_0.copy(), beta.copy(), theta.copy()
+    beta_0 = 0.0
+    theta_0 = np.zeros(k)
+    beta = np.zeros(p)
+    theta = np.zeros((p, k))
 
     # Precomputed variables
     if enable_cache:
@@ -405,18 +408,16 @@ def coordinate_descent(
                             True
                         )
                         for _ in range(100):  # Max steps
-                            beta_j_hat = beta[j]
-                            theta_j_hat = theta[j, :]
                             r = r_min_j - model_j(beta[j], theta[j, :], x[:, j], precomputed_w, j, z, True)
 
                             grad_beta_j = -np.sum(x[:, j] * r) / n
                             grad_theta_j = (-w_j.T @ r) / n
 
                             # Solve ABG
-                            for l in range(3):
+                            for l in range(8):
                                 tt = t * 0.5 ** l  # Reduce backtracking parameter if it fails to converge
                                 beta_j_hat, theta_j_hat, is_converged = solve_abg(
-                                    beta_j_hat, theta_j_hat,
+                                    beta[j], theta[j, :],
                                     grad_beta_j, grad_theta_j,
                                     alpha, lam, tt
                                 )

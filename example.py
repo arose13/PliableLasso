@@ -3,7 +3,7 @@ from time import time
 from numpy.testing import assert_almost_equal
 from scipy import stats
 from plasso import PliableLasso
-from plasso.helpers import model, objective, compute_w
+from plasso.numbaSolver import model, objective, compute_w
 from plasso.PliableLasso import OPTIMISE_COORDINATE, OPTIMISE_CONVEX, lam_min_max
 from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as graph
