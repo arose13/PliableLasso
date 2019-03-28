@@ -15,7 +15,6 @@ def quad_solution(u, v, w):
 
 
 def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
-    big = pt.ones(1) * 1e9
     eps = 1e-5
 
     g1 = pt.abs(beta_j - t * grad_beta)
@@ -28,32 +27,31 @@ def solve_abg(beta_j, theta_j, grad_beta, grad_theta, alpha, lam, t):
 
     root1, root2 = quad_solution(pt.ones(1), 2 * c, 2 * c * g2 - g1 ** 2 - g2 ** 2)
 
-    a = [
+    a = pt.tensor([
         g1 * root1 / (c + root1),
         g1 * root2 / (c + root2),
         g1 * root1 / (c + root2),
         g1 * root2 / (c + root1)
-    ]
-    b = [
+    ])
+    ar = a.repeat(4, 1)
+
+    b = pt.tensor([
         root1 * (c - g2) / (c + root1),
         root2 * (c - g2) / (c + root2),
         root1 * (c - g2) / (c + root2),
         root2 * (c - g2) / (c + root1)
-    ]
+    ])
+    br = b.repeat(4, 1).t()
 
-    x_min = big
-    j_hat, k_hat = 0, 0
-    for j in range(4):
-        for k in range(4):
-            denominator = (a[j] ** 2 + b[k] ** 2) ** 0.5  # l2 norm
-            if bool(denominator > 0):
-                val1 = (1 + (c / denominator)) * a[j] - g1
-                val2 = (1 + c * (1 / b[k] + 1 / denominator)) * b[k] - g2
+    denominator = pt.sqrt(ar**2 + br**2)
 
-                temp = pt.abs(val1) + pt.abs(val2)  # l1 norm
-                if bool(temp < x_min):
-                    j_hat, k_hat = j, k
-                    x_min = temp
+    val1 = (1 + (c / denominator)) * ar - g1
+    val2 = (1 + c * (1/br + 1/denominator)) * br - g2
+
+    temp = pt.abs(val1) + pt.abs(val2)
+
+    x_min = temp.min()
+    j_hat, k_hat = (temp == x_min).nonzero().flatten()
 
     # Check convergence
     is_converged = bool(pt.abs(x_min) < eps) or bool(a[j_hat] < 0) or bool(b[k_hat] < 0)
@@ -78,10 +76,7 @@ def concat_beta_theta(beta, theta):
 
 
 def compute_wj(xj, z):
-    wj = pt.zeros_like(z)
-    for ki in range(z.shape[1]):
-        wj[:, ki] = xj * z[:, ki]
-    return wj
+    return xj.reshape(z.shape[0], 1) * z
 
 
 def compute_pliable(x, z, theta):
@@ -265,7 +260,7 @@ def coordinate_descent_pytorch(x, z, y, alpha, lam_path, max_iter, max_interacti
                             r = r_min_j - model_j(beta[j], theta[j, :], x[:, j], w_j)
 
                             grad_beta_j = -pt.sum(x[:, j] * r) / n
-                            grad_theta_j = (-w_j.t() @ r) / n
+                            grad_theta_j = -(w_j.t() @ r) / n
 
                             # Solve ABG
                             for l in range(8):
