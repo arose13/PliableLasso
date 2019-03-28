@@ -266,7 +266,7 @@ def coordinate_descent_pytorch(x, z, y, alpha, lam_path, max_iter, max_interacti
                             for l in range(8):
                                 tt = t * 0.5 ** l
                                 beta_j_hat, theta_j_hat, is_converged = solve_abg(
-                                    beta[j], theta[j, :],
+                                    beta[j].clone(), theta[j, :].clone(),
                                     grad_beta_j, grad_theta_j,
                                     alpha, lam, tt
                                 )
