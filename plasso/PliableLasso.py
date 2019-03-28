@@ -66,14 +66,14 @@ def _binary_columns(a: np.ndarray):
 
 def _preprocess_x_z_y(x, z, y, normalize):
     # Check for binary traits
-    x_binary_columns, z_binary_columns = _binary_columns(x), _binary_columns(z)
+    # x_binary_columns, z_binary_columns = _binary_columns(x), _binary_columns(z)
 
     # Offsetting
     if normalize:
         # Swap with np.average if I want sample weights
         x_offset, z_offset, y_offset = [a.mean(axis=0) for a in (x, z, y)]
-        x_offset[x_binary_columns] = 0.0
-        z_offset[z_binary_columns] = 0.0
+        # x_offset[x_binary_columns] = 0.0
+        # z_offset[z_binary_columns] = 0.0
 
         x -= x_offset
         z -= z_offset
@@ -87,8 +87,8 @@ def _preprocess_x_z_y(x, z, y, normalize):
     if normalize:
         x_scale, z_scale, y_scale = [a.std(axis=0) for a in (x, z, y)]
         x_scale, z_scale, y_scale = [_handle_zeros_in_scale(a) for a in (x_scale, z_scale, y_scale)]
-        x_scale[x_binary_columns] = 1.0
-        z_scale[z_binary_columns] = 1.0
+        # x_scale[x_binary_columns] = 1.0
+        # z_scale[z_binary_columns] = 1.0
 
         x /= x_scale
         z /= z_scale
