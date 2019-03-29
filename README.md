@@ -5,6 +5,10 @@ Author: Stephen Anthony Rose
 
 Original paper: [https://arxiv.org/abs/1712.00484]
 
+```
+pip install plasso
+```
+
 Abstract
 --------
 
