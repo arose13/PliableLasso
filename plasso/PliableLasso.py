@@ -1,6 +1,7 @@
 import psutil
 import warnings
 import pandas as pd
+import numpy.linalg as la
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import train_test_split, KFold
@@ -11,8 +12,8 @@ from sklearn.preprocessing.data import _handle_zeros_in_scale
 from .numbaSolver import *
 
 
-OPTIMISE_CONVEX = 'convex'
 OPTIMISE_COORDINATE = 'coordinate'
+
 BACKEND_CPU = 'cpu'
 BACKEND_PYTORCH = 'pytorch'
 
@@ -20,17 +21,20 @@ BACKEND_PYTORCH = 'pytorch'
 def import_pytorch():
     try:
         import torch as pt
+        from multiprocessing import cpu_count
         it_exists = True
+        pt.set_num_threads(max(1, cpu_count()-1))
     except ImportError:
         it_exists = False
     return it_exists
 
 
-def lam_min_max(x, y, alpha, eps=1e-2, cv=1):
+def lam_min_max(x, z, y, alpha, eps=1e-2, cv=1):
     """
     Approximate the minimum and maximum values for the lambda
 
     :param x:
+    :param z:
     :param y:
     :param alpha:
     :param cv: Number used to estimate the actual sample size the solver will see.
@@ -39,18 +43,24 @@ def lam_min_max(x, y, alpha, eps=1e-2, cv=1):
     """
     assert 0 < eps < 1, '`eps` must be between 0 and 1'
 
+    # NOTE: This code currently doesn't nothing probably because I don't need it
     if cv > 1 and isinstance(cv, int):
         scale = (cv-1)/cv
     elif 0 < cv < 1:
         scale = 1-cv
     else:
         scale = 1.0
+    scale = 1.0
 
     n, p = x.shape
+
+    u = la.pinv(z.T @ z) @ (z.T @ y)
+    residual = y - (z @ u)
+
     dots = np.zeros(p)
     for j in range(p):
-        dots[j] = x[:, j].T @ (y - y.mean())
-    lam_max = np.abs(dots).max() / (n*scale*alpha)
+        dots[j] = np.abs(x[:, j].T @ residual) / (n * scale)
+    lam_max = dots.max() / (1-alpha)
     lam_min = eps * lam_max
     return lam_max, lam_min
 
@@ -151,56 +161,10 @@ class PliableLasso(BaseEstimator):
         self.verbose = verbose
         self.paths = {}
 
-    def fit(self, X, Z, y, optimizer=OPTIMISE_COORDINATE):
+    def fit(self, X, Z, y):
         # Convert all types to floats before proceeding
         X, Z, y = X.astype(float), Z.astype(float), y.astype(float)
-
-        if optimizer == OPTIMISE_CONVEX:
-            return self._fit_convex_optimization(X, Z, y)
-        elif optimizer == OPTIMISE_COORDINATE:
-            return self._fit_coordinate_descent(X, Z, y)
-        else:
-            raise ValueError('Only allowed optimizers are {} or {}'.format(OPTIMISE_COORDINATE, OPTIMISE_CONVEX))
-
-    def _fit_convex_optimization(self, X, Z, y):
-        try:
-            import cvxpy as cvx
-            from .cvxSolver import objective_cvx
-        except ModuleNotFoundError:
-            return self._fallback_to_coordinate_descent(X, Z, y)
-
-        # Check CVXPY version number
-        from distutils.version import LooseVersion
-        if LooseVersion(cvx.__version__) < LooseVersion('1.0.11'):
-            return self._fallback_to_coordinate_descent(X, Z, y)
-
-        # Hyperparameters
-        alpha = self.alpha
-        lam = cvx.Parameter(nonneg=True)
-        lam.value = self.min_lam
-
-        # Parameters
-        n, p = X.shape
-        k = Z.shape[1]
-
-        beta_0 = cvx.Variable(1)
-        theta_0 = cvx.Variable(k)
-        beta = cvx.Variable(p)
-        theta = cvx.Variable((p, k))
-
-        # Fit with Convex Optimisation
-        problem = cvx.Problem(
-            cvx.Minimize(objective_cvx(beta_0, theta_0, beta, theta, X, y, Z, alpha, lam))
-        )
-        # Solve on a decreasing lambda path
-        problem.solve(verbose=self.verbose, solver=cvx.CVXOPT, max_iter=self.max_iter)
-
-        self.beta_0 = beta_0.value
-        self.theta_0 = theta_0.value
-        self.beta = beta.value
-        self.theta = theta.value
-
-        return self
+        return self._fit_coordinate_descent(X, Z, y)
 
     def _fit_coordinate_descent(self, X, Z, y):
         # Step 0: Input checking
@@ -233,12 +197,14 @@ class PliableLasso(BaseEstimator):
             self.backend = BACKEND_PYTORCH if import_pytorch() else BACKEND_CPU
 
         # Solve lambda path spec
-        lambda_max, lambda_min = lam_min_max(X, y, self.alpha, self.eps, self.cv)
+        lambda_max, lambda_min = lam_min_max(X, Z, y, self.alpha, self.eps, self.cv)
         lambda_path = np.logspace(np.log10(lambda_max), np.log10(lambda_min), self.n_lam)
         lambda_path = lambda_path[lambda_path >= self.min_lam]
         if len(lambda_path) == 0:
             raise ValueError('`min_lam` was set too high! Maximum lambda for this problem is {}'.format(lambda_max))
         self.min_lam = max(lambda_path.min(), self.min_lam)
+        if self.verbose:
+            print('Lam max & min ({:.4f}, {:.4f})'.format(lambda_path.max(), lambda_path.min()))
 
         # Step 2: Update coefficients with coordinate descent
         if self.cv > 1 and isinstance(self.cv, int):

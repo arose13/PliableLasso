@@ -45,7 +45,11 @@ Or clone the repo:
     $ git clone https://github.com/arose13/PliableLasso.git
     $ python setup.py install
     
+Also for large data sets I recommend install `pytorch`
+    
 Contributing
 ------------
 
 Me (Stephen Anthony Rose)
+
+If you want to add and improve things be my guest.

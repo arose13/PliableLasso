@@ -4,7 +4,7 @@ from numpy.testing import assert_almost_equal
 from scipy import stats
 from plasso import PliableLasso
 from plasso.numbaSolver import model, objective, compute_w
-from plasso.PliableLasso import OPTIMISE_COORDINATE, OPTIMISE_CONVEX, lam_min_max
+from plasso.PliableLasso import lam_min_max
 from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as graph
 
@@ -61,42 +61,15 @@ if __name__ == '__main__':
     y_gt = y.copy()
     y += 0.5 * stats.norm().rvs(n)  # Add noise from paper
 
-    lambda_max, lambda_min = lam_min_max(x, y, 0.5)
+    lambda_max, lambda_min = lam_min_max(x, z, y, 0.5)
     print(f'\nlambda range [{lambda_min}, {lambda_max}]')
 
-    # Optimisation Test (Convex Optimisation)
+    # Optimisation Test (Coordinate Descent)
     plasso = PliableLasso(cv=0.1, verbose=True)
 
-    print('\n=== Fitting Model via Convex Optimisation ===')
-    plasso.fit(x, z, y, optimizer=OPTIMISE_CONVEX)
-    y_hat = plasso.predict(x, z)
-
-    print('\n== Outputs ==')
-
-    print('\nbeta_0')
-    print(plasso.beta_0)
-
-    print('\ntheta_0')
-    print(plasso.theta_0)
-
-    print('\nbeta')
-    print(np.round(plasso.beta, 2))
-
-    print('\ntheta')
-    print(np.round(plasso.theta, 2))
-
-    print('--- Best Possible ---')
-    print(f'R2 = {r2_score(y, y_gt):0.2%}, MSE = {mean_squared_error(y, y_gt):0.5f}')
-    print(f'J = {objective(beta_0, theta_0, beta, theta, x, z, y, plasso.alpha, plasso.min_lam, compute_w(x, z)):0.5f}')
-
-    print('--- Obtained ---')
-    print(f'R2 = {r2_score(y, y_hat):0.2%}, MSE = {mean_squared_error(y, y_hat):0.5f}')
-    print(f'J = {plasso.cost(x, z, y):0.5f}')
-
-    # Optimisation Test (Coordinate Descent)
     print('\n=== Fitting Model via Coordinate Descent ===')
     start_time = time()
-    plasso.fit(x, z, y, optimizer=OPTIMISE_COORDINATE)
+    plasso.fit(x, z, y)
     end_time = time()
     print(f'Fit time = {end_time - start_time:.5f}s')
 
