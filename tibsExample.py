@@ -1,9 +1,12 @@
 import numpy as np
 from time import time
 from scipy import stats
+from scipy.sparse import coo_matrix
 from plasso import PliableLasso
 import matplotlib.pyplot as graph
 from sklearn.metrics import r2_score
+
+from sklearn.linear_model import Lasso
 
 
 if __name__ == '__main__':
@@ -15,10 +18,16 @@ if __name__ == '__main__':
 
     x = stats.norm().rvs((n, p))
     z = stats.norm().rvs((n, k))
+    z *= stats.bernoulli(0.25).rvs(z.shape)
+    print(f'{z.nbytes / 1024:,} kb')
 
     y = 4*x[:, 1] + 5*x[:, 1] * z[:, 3]
     y += 3*stats.norm().rvs(n)
     y += 5
+
+    # Sparse conversion
+    z = coo_matrix(z)
+    print(f'{z.data.nbytes / 1024:,} kb')
 
     # Fit model
     model = PliableLasso(cv=0.1, verbose=True, eps=1e-2, normalize=True)
@@ -43,23 +52,23 @@ if __name__ == '__main__':
     print()
 
     # Plot coefficient paths
-    model.plot_coef_paths()
-    graph.show()
-
-    model.plot_interaction_paths()
-    graph.show()
-
-    model.plot_intercepts_path()
-    graph.show()
-
-    model.plot_score_path()
-    graph.show()
-
-    graph.figure(figsize=(6, 6))
-    graph.plot(y, y_hat, 'o', alpha=0.75)
-    graph.plot([y.min(), y.max()], [y.min(), y.max()], '--', color='black')
-    graph.xlabel('True')
-    graph.ylabel('Predicted')
-    graph.show()
+    # model.plot_coef_paths()
+    # graph.show()
+    #
+    # model.plot_interaction_paths()
+    # graph.show()
+    #
+    # model.plot_intercepts_path()
+    # graph.show()
+    #
+    # model.plot_score_path()
+    # graph.show()
+    #
+    # graph.figure(figsize=(6, 6))
+    # graph.plot(y, y_hat, 'o', alpha=0.75)
+    # graph.plot([y.min(), y.max()], [y.min(), y.max()], '--', color='black')
+    # graph.xlabel('True')
+    # graph.ylabel('Predicted')
+    # graph.show()
 
     print('--- Done ---')

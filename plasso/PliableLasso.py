@@ -2,6 +2,8 @@ import psutil
 import warnings
 import pandas as pd
 import numpy.linalg as la
+import scipy.sparse as sp
+import scipy.sparse.linalg as sla
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import train_test_split, KFold
@@ -29,6 +31,10 @@ def import_pytorch():
     return it_exists
 
 
+def is_sparse(x):
+    return not isinstance(x, np.ndarray)
+
+
 def lam_min_max(x, z, y, alpha, eps=1e-2, cv=1):
     """
     Approximate the minimum and maximum values for the lambda
@@ -54,7 +60,10 @@ def lam_min_max(x, z, y, alpha, eps=1e-2, cv=1):
 
     n, p = x.shape
 
-    u = la.pinv(z.T @ z) @ (z.T @ y)
+    if is_sparse(z):
+        u = sla.inv(z.T @ z + 1e-3 * sp.identity(z.shape[1]).tocsc()) @ (z.T @ y)
+    else:
+        u = la.pinv(z.T @ z) @ (z.T @ y)
     residual = y - (z @ u)
 
     dots = np.zeros(p)
@@ -100,11 +109,17 @@ def _preprocess_x_z_y(x, z, y, normalize):
         z_scale = np.ones(z.shape[1], dtype=z.dtype)
         y_scale = 1.0
 
+    # Ensure all results are np.ndarray
+    # TODO 3/30/19 convert scales and offsets to ndarrays if they are defmatrix
+
     return x, z, y, x_offset, z_offset, y_offset, x_scale, z_scale, y_scale
 
 
 def _transform_solved_model_parameters(coordinate_descent_results, x_mu, x_sd, z_mu, z_sd, y_mu, y_sd):
     # Some Setup: Compute the pooled standard deviation
+    for thing in (x_mu, x_sd, z_mu, z_sd, y_mu):
+        print(type(thing), thing)
+
     p, k = len(x_sd), len(z_sd)
     sd_xx = np.tile(x_sd, (k, 1)).T
     sd_zz = np.tile(z_sd, (p, 1))
@@ -168,8 +183,8 @@ class PliableLasso(BaseEstimator):
 
     def _fit_coordinate_descent(self, X, Z, y):
         # Step 0: Input checking
-        X, y = check_X_y(X, y, dtype=[np.float64, np.float32], y_numeric=True)
-        Z, _ = check_X_y(Z, y, dtype=[np.float64, np.float32])
+        X, y = check_X_y(X, y, accept_sparse='coo', dtype=[np.float64, np.float32], y_numeric=True)
+        Z, _ = check_X_y(Z, y, accept_sparse='coo', dtype=[np.float64, np.float32])
         self._reset_paths_dict_and_variables()
 
         # Step 1: Initial Setup
@@ -187,7 +202,8 @@ class PliableLasso(BaseEstimator):
         n, p = X.shape
         k = Z.shape[1]
 
-        upper_limit_of_memory_required = Z.nbytes * p  # This is the upper limit memory used for precomputed Wj
+        # This is the upper limit memory used for precomputed Wj
+        upper_limit_of_memory_required = Z.data.nbytes * p if is_sparse(Z) else Z.nbytes * p
         if upper_limit_of_memory_required >= psutil.virtual_memory().available:
             print('Large problem detected. Caching will be turned off. This will affect performance')
             self.enable_caching = False
