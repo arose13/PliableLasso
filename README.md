@@ -1,6 +1,8 @@
 plasso
 ===============================
 
+**NOTE: This project is in the alpha stage while the API and performance is improved**
+
 Author: Stephen Anthony Rose
 
 Original paper: [https://arxiv.org/abs/1712.00484]
