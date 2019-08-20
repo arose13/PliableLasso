@@ -2,6 +2,7 @@ import psutil
 import warnings
 import pandas as pd
 import numpy.linalg as la
+import scipy.sparse.linalg as sla
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import train_test_split, KFold
@@ -11,11 +12,12 @@ from sklearn.preprocessing.data import _handle_zeros_in_scale
 
 from .numbaSolver import *
 
-
 OPTIMISE_COORDINATE = 'coordinate'
 
 BACKEND_CPU = 'cpu'
 BACKEND_PYTORCH = 'pytorch'
+
+machine_precision = lambda x: np.finfo(x.dtype)  # Machine precision
 
 
 def import_pytorch():
@@ -23,7 +25,7 @@ def import_pytorch():
         import torch as pt
         from multiprocessing import cpu_count
         it_exists = True
-        pt.set_num_threads(max(1, cpu_count()-1))
+        pt.set_num_threads(max(1, cpu_count() - 1))
     except ImportError:
         it_exists = False
     return it_exists
@@ -45,22 +47,23 @@ def lam_min_max(x, z, y, alpha, eps=1e-2, cv=1):
 
     # NOTE: This code currently doesn't nothing probably because I don't need it
     if cv > 1 and isinstance(cv, int):
-        scale = (cv-1)/cv
+        scale = (cv - 1) / cv
     elif 0 < cv < 1:
-        scale = 1-cv
+        scale = 1 - cv
     else:
         scale = 1.0
     scale = 1.0
 
     n, p = x.shape
 
-    u = la.pinv(z.T @ z) @ (z.T @ y)
+    u, *_ = la.lstsq(z, y, rcond=MP) if isinstance(z, np.ndarray) else sla.lsqr(z, y)
+
     residual = y - (z @ u)
 
     dots = np.zeros(p)
     for j in range(p):
         dots[j] = np.abs(x[:, j].T @ residual) / (n * scale)
-    lam_max = dots.max() / (1-alpha)
+    lam_max = dots.max() / (1 - alpha)
     lam_min = eps * lam_max
     return lam_max, lam_min
 
@@ -135,6 +138,7 @@ class PliableLasso(BaseEstimator):
     """
     Pliable Lasso https://arxiv.org/pdf/1712.00484.pdf
     """
+
     def __init__(self, alpha=0.5, eps=1e-2, n_lam=50, min_lam=0,
                  max_interaction_terms=500, max_iter=100, cv=3, metric=mean_squared_error, normalize=True,
                  verbose=False, enable_caching=True, backend='cpu'):
@@ -168,8 +172,8 @@ class PliableLasso(BaseEstimator):
 
     def _fit_coordinate_descent(self, X, Z, y):
         # Step 0: Input checking
-        X, y = check_X_y(X, y, dtype=[np.float64, np.float32], y_numeric=True)
-        Z, _ = check_X_y(Z, y, dtype=[np.float64, np.float32])
+        X, y = check_X_y(X, y, accept_sparse=True, dtype=[np.float64, np.float32], y_numeric=True)
+        Z, _ = check_X_y(Z, y, accept_sparse=True, dtype=[np.float64, np.float32])
         self._reset_paths_dict_and_variables()
 
         # Step 1: Initial Setup
@@ -187,7 +191,7 @@ class PliableLasso(BaseEstimator):
         n, p = X.shape
         k = Z.shape[1]
 
-        upper_limit_of_memory_required = Z.nbytes * p  # This is the upper limit memory used for precomputed Wj
+        upper_limit_of_memory_required = Z.data.nbytes * p  # This is the upper limit memory used for precomputed Wj
         if upper_limit_of_memory_required >= psutil.virtual_memory().available:
             print('Large problem detected. Caching will be turned off. This will affect performance')
             self.enable_caching = False
